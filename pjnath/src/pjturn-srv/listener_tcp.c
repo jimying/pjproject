@@ -47,16 +47,6 @@ static pj_status_t lis_destroy(pj_turn_listener *listener);
 static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
 			     pj_sockaddr_t *src_addr, int src_addr_len);
 
-static void show_err(const char *sender, const char *title, 
-		     pj_status_t status)
-{
-    char errmsg[PJ_ERR_MSG_SIZE];
-
-    pj_strerror(status, errmsg, sizeof(errmsg));
-    PJ_LOG(4,(sender, "%s: %s", title, errmsg));
-}
-
-
 /*
  * Create a new listener on the specified port.
  */
@@ -91,6 +81,9 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_tcp(pj_turn_srv *srv,
     status = pj_sock_socket(af, pj_SOCK_STREAM(), 0, &tcp_lis->base.sock);
     if (status != PJ_SUCCESS)
 	goto on_error;
+
+    /* Disable TIME_WAIT */
+    pj_util_disable_tcp_timewait(tcp_lis->base.sock);
 
     /* Init bind address */
     status = pj_sockaddr_init(af, &tcp_lis->base.addr, bound_addr, 
@@ -202,8 +195,8 @@ static void lis_on_accept_complete(pj_ioqueue_key_t *key,
 					sizeof(addr), 3)));
 	    transport_create(accept_op->sock, &tcp_lis->base,
 			     &accept_op->src_addr, accept_op->src_addr_len);
-	} else if (status != PJ_EPENDING) {
-	    show_err(tcp_lis->base.obj_name, "accept()", status);
+	} else if (status != PJ_EPENDING && status != PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
+	    pj_util_show_err(tcp_lis->base.obj_name, "accept()", status);
 	}
 
 	/* Prepare next accept() */
@@ -227,13 +220,6 @@ enum
     TIMER_NONE,
     TIMER_DESTROY
 };
-
-/* The delay in seconds to be applied before TCP transport is destroyed when 
- * no allocation is referencing it. This also means the initial time to wait
- * after the initial TCP connection establishment to receive a valid STUN
- * message in the transport.
- */
-#define SHUTDOWN_DELAY  10
 
 struct recv_op
 {
@@ -294,8 +280,10 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
     tcp->base.dec_ref = &tcp_dec_ref;
     tcp->pool = pool;
     tcp->sock = sock;
-
     pj_timer_entry_init(&tcp->timer, TIMER_NONE, tcp, &timer_callback);
+
+    /* set sock buffer size */
+    pj_util_set_sock_buf_size(sock, PJ_TURN_TCP_SOCK_BUF_SIZE);
 
     /* Register to ioqueue */
     pj_bzero(&cb, sizeof(cb));
@@ -325,10 +313,20 @@ static void tcp_destroy(struct tcp_transport *tcp)
     if (tcp->key) {
 	pj_ioqueue_unregister(tcp->key);
 	tcp->key = NULL;
-	tcp->sock = 0;
-    } else if (tcp->sock) {
+	tcp->sock = PJ_INVALID_SOCKET;
+    } else if (tcp->sock != PJ_INVALID_SOCKET) {
 	pj_sock_close(tcp->sock);
-	tcp->sock = 0;
+	tcp->sock = PJ_INVALID_SOCKET;
+    }
+
+    if (tcp->timer.id != TIMER_NONE) {
+	pj_timer_heap_cancel(tcp->base.listener->server->core.timer_heap,
+			     &tcp->timer);
+	tcp->timer.id = TIMER_NONE;
+    }
+
+    if (tcp->recv_op.pkt.pool) {
+	pj_pool_release(tcp->recv_op.pkt.pool);
     }
 
     if (tcp->pool) {
@@ -336,6 +334,27 @@ static void tcp_destroy(struct tcp_transport *tcp)
     }
 }
 
+static void delay_tcp_destroy(struct tcp_transport *tcp)
+{
+    pj_time_val delay = {0, 100};
+
+    if (tcp->key) {
+	pj_ioqueue_unregister(tcp->key);
+	tcp->key = NULL;
+	tcp->sock = PJ_INVALID_SOCKET;
+    } else if (tcp->sock != PJ_INVALID_SOCKET) {
+	pj_sock_close(tcp->sock);
+	tcp->sock = PJ_INVALID_SOCKET;
+    }
+
+    if (tcp->timer.id != TIMER_NONE) {
+	pj_timer_heap_cancel(tcp->base.listener->server->core.timer_heap,
+			     &tcp->timer);
+    }
+    tcp->timer.id = TIMER_DESTROY;
+    pj_timer_heap_schedule(tcp->base.listener->server->core.timer_heap,
+			   &tcp->timer, &delay);
+}
 
 static void timer_callback(pj_timer_heap_t *timer_heap,
 			   pj_timer_entry *entry)
@@ -344,6 +363,7 @@ static void timer_callback(pj_timer_heap_t *timer_heap,
 
     PJ_UNUSED_ARG(timer_heap);
 
+    entry->id = TIMER_NONE;
     tcp_destroy(tcp);
 }
 
@@ -355,6 +375,8 @@ static void tcp_on_read_complete(pj_ioqueue_key_t *key,
     struct tcp_transport *tcp;
     struct recv_op *recv_op = (struct recv_op*) op_key;
     pj_status_t status;
+    pj_turn_pkt *pkt = &recv_op->pkt;
+    int flags = PJ_TURN_SOCK_READ_FLAGS;
 
     tcp = (struct tcp_transport*) pj_ioqueue_get_user_data(key);
 
@@ -362,30 +384,63 @@ static void tcp_on_read_complete(pj_ioqueue_key_t *key,
 	/* Report to server or allocation, if we have allocation */
 	if (bytes_read > 0) {
 
-	    recv_op->pkt.len = bytes_read;
-	    pj_gettimeofday(&recv_op->pkt.rx_time);
+	    pkt->len += bytes_read;
+	    // pj_gettimeofday(&pkt->rx_time);
 
-	    tcp_add_ref(&tcp->base, NULL);
+	    pj_size_t left_len = pkt->len;
 
-	    if (tcp->alloc) {
-		pj_turn_allocation_on_rx_client_pkt(tcp->alloc, &recv_op->pkt);
-	    } else {
-		pj_turn_srv_on_rx_pkt(tcp->base.listener->server, &recv_op->pkt);
+	    for (;;) {
+		if (left_len < 4)
+		    break;
+
+		pj_uint16_t typ =
+		    pj_ntohs(*(pj_uint16_t *)pkt->pkt); // message type
+		pj_size_t len =
+		    pj_ntohs(*(pj_uint16_t *)(pkt->pkt + 2)); // message length
+
+		if (typ < 0x4000) {
+		    len += sizeof(pj_stun_msg_hdr);
+		} else if (typ < 0x8000) {
+		    len += sizeof(pj_turn_channel_data);
+		    /* 4 byte alignment */
+		    while (len & 0x3)
+			len++;
+		} else {
+		    PJ_LOG(2, ("TCP", "Bad msg typ: 0x%04x", typ));
+		    pkt->len = 0; // reset pkt
+		    break;
+		}
+
+		/* check data size */
+		if (left_len < len) {
+		    // no enough, wait more ..
+		    break;
+		}
+
+		/* Parse a whole msg */
+		pkt->len = len;
+		if (tcp->alloc) {
+		    pj_turn_allocation_on_rx_client_pkt(tcp->alloc, pkt);
+		} else {
+		    pj_turn_srv_on_rx_pkt(tcp->base.listener->server, pkt);
+		}
+
+		/* Continue to parse */
+		left_len -= len;
+		pkt->len = left_len;
+		if (left_len > 0)
+		    pj_memmove(pkt->pkt, pkt->pkt + len, left_len);
 	    }
 
-	    pj_assert(tcp->ref_cnt > 0);
-	    tcp_dec_ref(&tcp->base, NULL);
-
-	} else if (bytes_read != -PJ_EPENDING) {
+	} else if (bytes_read != -PJ_EPENDING &&
+		   bytes_read != -PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
 	    /* TCP connection closed/error. Notify client and then destroy 
 	     * ourselves.
 	     * Note: the -PJ_EPENDING is the value passed during init.
 	     */
-	    ++tcp->ref_cnt;
-
 	    if (tcp->alloc) {
 		if (bytes_read != 0) {
-		    show_err(tcp->base.obj_name, "TCP socket error", 
+		    pj_util_show_err(tcp->base.obj_name, "TCP socket error", 
 			     -bytes_read);
 		} else {
 		    PJ_LOG(5,(tcp->base.obj_name, "TCP socket closed"));
@@ -394,15 +449,12 @@ static void tcp_on_read_complete(pj_ioqueue_key_t *key,
 		tcp->alloc = NULL;
 	    }
 
-	    pj_assert(tcp->ref_cnt > 0);
-	    if (--tcp->ref_cnt == 0) {
-		tcp_destroy(tcp);
-		return;
-	    }
+	    delay_tcp_destroy(tcp);
+	    return;
 	}
 
 	/* Reset pool */
-	pj_pool_reset(recv_op->pkt.pool);
+	// pj_pool_reset(recv_op->pkt.pool);
 
 	/* If packet is full discard it */
 	if (recv_op->pkt.len == sizeof(recv_op->pkt.pkt)) {
@@ -413,15 +465,13 @@ static void tcp_on_read_complete(pj_ioqueue_key_t *key,
 	/* Read next packet */
 	bytes_read = sizeof(recv_op->pkt.pkt) - recv_op->pkt.len;
 	status = pj_ioqueue_recv(tcp->key, op_key,
-				 recv_op->pkt.pkt + recv_op->pkt.len, 
-				 &bytes_read, 0);
+				 recv_op->pkt.pkt + recv_op->pkt.len,
+				 &bytes_read, flags);
 
 	if (status != PJ_EPENDING && status != PJ_SUCCESS)
 	    bytes_read = -status;
 
-    } while (status != PJ_EPENDING && status != PJ_ECANCELLED &&
-	     status != PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL));
-
+    } while (status != PJ_EPENDING && status != PJ_ECANCELLED);
 }
 
 
@@ -432,53 +482,43 @@ static pj_status_t tcp_sendto(pj_turn_transport *tp,
 			      const pj_sockaddr_t *addr,
 			      int addr_len)
 {
-    struct tcp_transport *tcp = (struct tcp_transport*) tp;
+    struct tcp_transport *tcp = (struct tcp_transport *)tp;
     pj_ssize_t length = size;
 
     PJ_UNUSED_ARG(addr);
     PJ_UNUSED_ARG(addr_len);
 
-    return pj_ioqueue_send(tcp->key, &tcp->send_op, packet, &length, flag);
-}
+    /* 4 byte alignment */
+    while (length & 0x3)
+	length++;
 
+    pj_status_t status =
+	pj_ioqueue_send(tcp->key, &tcp->send_op, packet, &length, flag);
+
+    if (status != PJ_SUCCESS) {
+	pj_util_show_err(tcp->base.obj_name, "send error", status);
+    }
+
+    return status;
+}
 
 static void tcp_add_ref(pj_turn_transport *tp,
 			pj_turn_allocation *alloc)
 {
-    struct tcp_transport *tcp = (struct tcp_transport*) tp;
-
+    struct tcp_transport *tcp = (struct tcp_transport *)tp;
     ++tcp->ref_cnt;
-
-    if (tcp->alloc == NULL && alloc) {
-	tcp->alloc = alloc;
-    }
-
-    /* Cancel shutdown timer if it's running */
-    if (tcp->timer.id != TIMER_NONE) {
-	pj_timer_heap_cancel(tcp->base.listener->server->core.timer_heap,
-			     &tcp->timer);
-	tcp->timer.id = TIMER_NONE;
-    }
+    tcp->alloc = alloc;
 }
-
 
 static void tcp_dec_ref(pj_turn_transport *tp,
 			pj_turn_allocation *alloc)
 {
-    struct tcp_transport *tcp = (struct tcp_transport*) tp;
+    PJ_UNUSED_ARG(alloc);
+    struct tcp_transport *tcp = (struct tcp_transport *)tp;
 
     --tcp->ref_cnt;
-
-    if (alloc && alloc == tcp->alloc) {
-	tcp->alloc = NULL;
-    }
-
-    if (tcp->ref_cnt == 0 && tcp->timer.id == TIMER_NONE) {
-	pj_time_val delay = { SHUTDOWN_DELAY, 0 };
-	tcp->timer.id = TIMER_DESTROY;
-	pj_timer_heap_schedule(tcp->base.listener->server->core.timer_heap,
-			       &tcp->timer, &delay);
-    }
+    if (tcp->ref_cnt == 0)
+	delay_tcp_destroy(tcp);
 }
 
 #else	/* PJ_HAS_TCP */
