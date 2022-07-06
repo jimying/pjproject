@@ -1,0 +1,24 @@
+---
+Language:        Cpp
+BasedOnStyle:  LLVM
+IndentWidth:    4
+TabWidth:       8
+#UseTab:         AlignWithSpaces
+UseTab:         ForContinuationAndIndentation
+BreakBeforeBraces:  Linux
+
+AllowShortFunctionsOnASingleLine: false
+AllowShortBlocksOnASingleLine : false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false 
+AllowShortEnumsOnASingleLine: false
+
+#AlignArrayOfStructures: Left
+
+# Function params
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackParameters: false
+
+...
+
