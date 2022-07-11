@@ -250,7 +250,7 @@ int main(int argc, char **argv)
     const pj_turn_config *pcfg;
     int nworkers;
     pj_sockaddr addr_list[16];
-    int addr_cnt = PJ_ARRAY_SIZE(addr_list);
+    pj_uint32_t addr_cnt = PJ_ARRAY_SIZE(addr_list);
     int i;
 
     status = pj_init();

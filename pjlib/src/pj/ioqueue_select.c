@@ -578,11 +578,6 @@ PJ_DEF(pj_status_t) pj_ioqueue_unregister( pj_ioqueue_key_t *key)
     pj_lock_destroy(key->lock);
 #endif
 
-#if PJ_IOQUEUE_HAS_WAKEUP
-    /* wakeup ioqueue */
-    pj_ioqueue_wakeup(ioqueue);
-#endif
-
     return PJ_SUCCESS;
 }
 
@@ -973,9 +968,14 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 #endif
 	pj_lock_release(ioqueue->lock);
 	TRACE__((THIS_FILE, "     poll: no fd is set"));
-        if (timeout)
-            pj_thread_sleep(PJ_TIME_VAL_MSEC(*timeout));
-        return 0;
+	const pj_uint32_t MAX_MSEC = 50;
+	pj_uint32_t msec = timeout ? PJ_TIME_VAL_MSEC(*timeout) : MAX_MSEC;
+	if (msec > MAX_MSEC) {
+	    // Avoid sleep too long time
+	    msec = MAX_MSEC;
+	}
+	pj_thread_sleep(msec);
+	return 0;
     }
 
     /* Copy ioqueue's pj_fd_set_t to local variables. */
