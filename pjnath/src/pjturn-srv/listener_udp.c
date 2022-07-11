@@ -111,6 +111,11 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_udp( pj_turn_srv *srv,
     pj_sockaddr_print(&udp->base.addr, udp->base.info+4, 
 		      sizeof(udp->base.info)-4, 3);
 
+    /* set bound ip */
+    if (bound_addr) {
+	pj_strdup_with_null(pool, &udp->base.addr_ip, bound_addr);
+    }
+
     /* Bind socket */
     status = pj_sock_bind(udp->base.sock, &udp->base.addr, 
 			  pj_sockaddr_get_len(&udp->base.addr));

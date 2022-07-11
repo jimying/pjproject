@@ -96,6 +96,11 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_tcp(pj_turn_srv *srv,
     pj_sockaddr_print(&tcp_lis->base.addr, tcp_lis->base.info+4, 
 		      sizeof(tcp_lis->base.info)-4, 3);
 
+    /* set bound ip */
+    if (bound_addr) {
+	pj_strdup_with_null(pool, &tcp_lis->base.addr_ip, bound_addr);
+    }
+
     /* Bind socket */
     status = pj_sock_bind(tcp_lis->base.sock, &tcp_lis->base.addr, 
 			  pj_sockaddr_get_len(&tcp_lis->base.addr));

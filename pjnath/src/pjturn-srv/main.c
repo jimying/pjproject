@@ -249,6 +249,9 @@ int main(int argc, char **argv)
     pj_status_t status;
     const pj_turn_config *pcfg;
     int nworkers;
+    pj_sockaddr addr_list[16];
+    int addr_cnt = PJ_ARRAY_SIZE(addr_list);
+    int i;
 
     status = pj_init();
     if (status != PJ_SUCCESS)
@@ -279,25 +282,41 @@ int main(int argc, char **argv)
 
     nworkers = srv->core.thread_cnt;
 
-    status = pj_turn_listener_create_udp(srv, pj_AF_INET(), NULL, 
-					 pcfg->listening_port, nworkers, 0, &listener);
+    status = pj_enum_ip_interface(pj_AF_INET(), &addr_cnt, addr_list);
     if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "Error creating UDP listener", status);
+	return pj_util_show_err(NULL, "Error enum ip interface", status);
 
-    status = pj_turn_srv_add_listener(srv, listener);
-    if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "Error adding UDP listener", status);
+    for (i = 0; i < addr_cnt; i++) {
+	char ip[80];
+	pj_str_t sip;
+	pj_sockaddr_print(&addr_list[i], ip, sizeof(ip), 0);
+	sip = pj_str(ip);
+	status = pj_turn_listener_create_udp(srv, pj_AF_INET(), &sip,
+					     pcfg->listening_port, nworkers, 0,
+					     &listener);
+	if (status != PJ_SUCCESS)
+	    return pj_util_show_err(NULL, "Error creating UDP listener",
+				    status);
+
+	status = pj_turn_srv_add_listener(srv, listener);
+	if (status != PJ_SUCCESS)
+	    return pj_util_show_err(NULL, "Error adding UDP listener", status);
 
 #if PJ_HAS_TCP
-    status = pj_turn_listener_create_tcp(srv, pj_AF_INET(), NULL, 
-					 pcfg->listening_port, nworkers, 0, &listener);
-    if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "Error creating TCP listener", status);
+	status = pj_turn_listener_create_tcp(srv, pj_AF_INET(), &sip,
+					     pcfg->listening_port, nworkers, 0,
+					     &listener);
+	if (status != PJ_SUCCESS)
+	    return pj_util_show_err(NULL, "Error creating TCP listener",
+				    status);
 
-    status = pj_turn_srv_add_listener(srv, listener);
-    if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "Error adding TCP listener", status);
+	status = pj_turn_srv_add_listener(srv, listener);
+	if (status != PJ_SUCCESS)
+	    return pj_util_show_err(NULL, "Error adding TCP listener", status);
+#endif
+    }
 
+#if PJ_HAS_TCP
     status = pj_turn_create_http_admin(srv, pj_AF_INET(), NULL,
 				       pcfg->listening_port - 1, 1);
     if (status != PJ_SUCCESS)

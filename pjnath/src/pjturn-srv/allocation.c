@@ -607,6 +607,7 @@ static pj_status_t create_relay(pj_turn_srv *srv,
     int af, namelen;
     pj_stun_string_attr *sa;
     pj_status_t status;
+    pj_str_t *ip;
 
     pj_bzero(relay, sizeof(*relay));
 
@@ -615,6 +616,9 @@ static pj_status_t create_relay(pj_turn_srv *srv,
 
     /* TODO: get the requested address family from somewhere */
     af = alloc->transport->listener->addr.addr.sa_family;
+
+    /* bound ip */
+    ip = &alloc->transport->listener->addr_ip;
 
     /* Save realm */
     sa = (pj_stun_string_attr*)
@@ -686,7 +690,7 @@ static pj_status_t create_relay(pj_turn_srv *srv,
 
 	pj_lock_release(srv->core.lock);
 
-	pj_sockaddr_init(af, &bound_addr, NULL, port);
+	pj_sockaddr_init(af, &bound_addr, ip->slen ? ip : NULL, port);
 
 	status = pj_sock_bind(relay->tp.sock, &bound_addr,
 			      pj_sockaddr_get_len(&bound_addr));
