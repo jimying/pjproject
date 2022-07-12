@@ -96,9 +96,9 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_tcp(pj_turn_srv *srv,
     pj_sockaddr_print(&tcp_lis->base.addr, tcp_lis->base.info+4, 
 		      sizeof(tcp_lis->base.info)-4, 3);
 
-    /* set bound ip */
+    /* set bound listen ip */
     if (bound_addr) {
-	pj_strdup_with_null(pool, &tcp_lis->base.addr_ip, bound_addr);
+	pj_strdup_with_null(pool, &tcp_lis->base.listen_ip, bound_addr);
     }
 
     /* Bind socket */
@@ -393,15 +393,17 @@ static void tcp_on_read_complete(pj_ioqueue_key_t *key,
 	    // pj_gettimeofday(&pkt->rx_time);
 
 	    pj_size_t left_len = pkt->len;
+	    pj_uint16_t *pd;
+	    pj_uint16_t typ;
+	    pj_size_t len;
 
 	    for (;;) {
 		if (left_len < 4)
 		    break;
 
-		pj_uint16_t typ =
-		    pj_ntohs(*(pj_uint16_t *)pkt->pkt); // message type
-		pj_size_t len =
-		    pj_ntohs(*(pj_uint16_t *)(pkt->pkt + 2)); // message length
+		pd = (pj_uint16_t *)pkt->pkt;
+		typ = pj_ntohs(*pd);
+		len = pj_ntohs(*(pd + 1));
 
 		if (typ < 0x4000) {
 		    len += sizeof(pj_stun_msg_hdr);

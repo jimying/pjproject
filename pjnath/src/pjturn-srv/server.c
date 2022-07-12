@@ -666,7 +666,8 @@ PJ_DEF(void) pj_turn_srv_on_rx_pkt(pj_turn_srv *srv,
      * STUN session since this request is not authenticated.
      */
     if (is_stun) {
-	pj_uint16_t msg_typ = pj_ntohs(*(pj_uint16_t *)pkt->pkt);
+	pj_uint16_t *pd = (pj_uint16_t *)pkt->pkt;
+	pj_uint16_t msg_typ = pj_ntohs(*pd);
 	if (msg_typ == PJ_STUN_BINDING_REQUEST) {
 	    pj_stun_msg *request;
 	    status = pj_stun_msg_decode(pkt->pool, pkt->pkt, pkt->len, options,

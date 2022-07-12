@@ -257,7 +257,7 @@ struct pj_turn_listener
 
     /** Bound address of this listener. */
     pj_sockaddr		addr;
-    pj_str_t		addr_ip;
+    pj_str_t		listen_ip;
 
     /** Socket. */
     pj_sock_t		sock;

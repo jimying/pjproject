@@ -618,7 +618,7 @@ static pj_status_t create_relay(pj_turn_srv *srv,
     af = alloc->transport->listener->addr.addr.sa_family;
 
     /* bound ip */
-    ip = &alloc->transport->listener->addr_ip;
+    ip = &alloc->transport->listener->listen_ip;
 
     /* Save realm */
     sa = (pj_stun_string_attr*)
