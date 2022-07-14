@@ -1,0 +1,45 @@
+{
+   supp_console
+   drd:ConflictingAccess
+   fun:__GI_mempcpy
+   fun:_IO_file_xsputn@@GLIBC_2.2.5
+}
+
+{
+   supp_log
+   drd:ConflictingAccess
+   fun:pj_log
+   fun:pj_log_4
+}
+
+{
+   supp_pool
+   drd:ConflictingAccess
+   fun:cpool_on_block_alloc
+   fun:default_block_alloc
+}
+
+{
+   supp_pool_2
+   drd:ConflictingAccess
+   fun:cpool_on_block_free
+   fun:default_block_free
+}
+
+{
+   supp_turn_quit
+   drd:ConflictingAccess
+   fun:server_thread_proc
+}
+{
+   supp_turn_quit2
+   drd:ConflictingAccess
+   fun:srv_handle_events
+}
+
+{
+   supp_turn_quit3
+   drd:ConflictingAccess
+   fun:pj_turn_srv_destroy
+}
+
