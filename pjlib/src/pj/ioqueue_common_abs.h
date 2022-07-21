@@ -137,15 +137,15 @@ union operation_key
 enum ioqueue_event_type
 {
     NO_EVENT,
-    READABLE_EVENT,
-    WRITEABLE_EVENT,
-    EXCEPTION_EVENT,
+    READABLE_EVENT  = 1,
+    WRITEABLE_EVENT = 2,
+    EXCEPTION_EVENT = 4,
 };
 
 static void ioqueue_add_to_set( pj_ioqueue_t *ioqueue,
                                 pj_ioqueue_key_t *key,
-                                enum ioqueue_event_type event_type );
+                                unsigned event_types);
 static void ioqueue_remove_from_set( pj_ioqueue_t *ioqueue,
                                      pj_ioqueue_key_t *key, 
-                                     enum ioqueue_event_type event_type);
+                                     unsigned event_types);
 

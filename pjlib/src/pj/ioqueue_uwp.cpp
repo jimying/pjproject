@@ -54,11 +54,11 @@ struct pj_ioqueue_t
 
 static void ioqueue_remove_from_set( pj_ioqueue_t *ioqueue,
 				     pj_ioqueue_key_t *key, 
-				     enum ioqueue_event_type event_type)
+				     unsigned event_types)
 {
     PJ_UNUSED_ARG(ioqueue);
     PJ_UNUSED_ARG(key);
-    PJ_UNUSED_ARG(event_type);
+    PJ_UNUSED_ARG(event_types);
 }
 
 
@@ -94,14 +94,14 @@ static void start_next_write(pj_ioqueue_key_t *key)
 
 static void ioqueue_add_to_set( pj_ioqueue_t *ioqueue,
 				pj_ioqueue_key_t *key,
-				enum ioqueue_event_type event_type )
+				unsigned event_types )
 {
     PJ_UNUSED_ARG(ioqueue);
 
-    if (event_type == READABLE_EVENT) {
+    if (event_types & READABLE_EVENT) {
 	/* This is either recv, recvfrom, or accept, do nothing on accept */
 	start_next_read(key);
-    } else if (event_type == WRITEABLE_EVENT) {
+    } else if (event_types & WRITEABLE_EVENT) {
 	/* This is either send, sendto, or connect, do nothing on connect */
 	//start_next_write(key);
     }

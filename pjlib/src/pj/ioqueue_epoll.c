@@ -77,6 +77,7 @@ static const char *ioq_name = "epoll";
 struct pj_ioqueue_key_t
 {
     DECLARE_COMMON_KEY
+    struct epoll_event ev;
 };
 
 struct queue
@@ -414,6 +415,13 @@ PJ_DEF(pj_status_t) pj_ioqueue_register_sock2(pj_pool_t *pool,
 	goto on_return;
     }
 
+    pj_bzero(&key->ev, sizeof(key->ev));
+    key->ev.epoll_data = (epoll_data_type)key;
+    if (ioqueue->use_epollexlusive)
+	key->ev.events |= EPOLLEXCLUSIVE;
+    else if (ioqueue->use_epolloneshot)
+	key->ev.events |= EPOLLONESHOT;
+
     /* Create key's mutex */
  /*   rc = pj_mutex_create_recursive(pool, NULL, &key->mutex);
     if (rc != PJ_SUCCESS) {
@@ -422,13 +430,7 @@ PJ_DEF(pj_status_t) pj_ioqueue_register_sock2(pj_pool_t *pool,
     }
 */
     /* os_epoll_ctl. */
-    ev.events = EPOLLIN | EPOLLERR;
-    if (ioqueue->use_epollexlusive)
-	ev.events |= EPOLLEXCLUSIVE;
-    else if (ioqueue->use_epolloneshot)
-	ev.events |= EPOLLONESHOT;
-    ev.epoll_data = (epoll_data_type)key;
-    status = os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_ADD, sock, &ev);
+    status = os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_ADD, sock, &key->ev);
     if (status < 0) {
 	rc = pj_get_os_error();
 	pj_lock_destroy(key->lock);
@@ -436,6 +438,7 @@ PJ_DEF(pj_status_t) pj_ioqueue_register_sock2(pj_pool_t *pool,
 	TRACE_((THIS_FILE, 
                 "pj_ioqueue_register_sock error: os_epoll_ctl rc=%d", 
                 status));
+	PJ_PERROR(1, (THIS_FILE, rc, "Error register socket"));
 	goto on_return;
     }
     
@@ -616,23 +619,25 @@ static void update_epoll_event_set(pj_ioqueue_t *ioqueue,
                                    pj_ioqueue_key_t *key,
 				   pj_uint32_t events)
 {
-    struct epoll_event ev;
-
-    ev.epoll_data = (epoll_data_type)key;
-    ev.events = events;
-
-    if (ioqueue->use_epollexlusive) {
-	ev.events |= EPOLLEXCLUSIVE;
-	os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_DEL, key->fd, &ev);
-	os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_ADD, key->fd, &ev);
-    } else if (ioqueue->use_epolloneshot) {
-	ev.events |= EPOLLONESHOT;
-	os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_MOD, key->fd, &ev);
+    int rc;
+    /* From epoll_ctl(2):
+     * EPOLLEXCLUSIVE may be used only in an EPOLL_CTL_ADD operation;
+     * attempts to employ it with EPOLL_CTL_MOD yield an error.
+     */
+	key->ev.events = events;
+    if (key->ev.events & EPOLLEXCLUSIVE) {
+	rc = os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_DEL, key->fd, NULL);
+	rc = os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_ADD, key->fd, &key->ev);
     } else {
-	os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_MOD, key->fd, &ev);
+	rc = os_epoll_ctl(ioqueue->epfd, EPOLL_CTL_MOD, key->fd, &key->ev);
+    }
+
+    if (rc != 0) {
+	pj_status_t status = pj_get_os_error();
+	PJ_PERROR(1, (THIS_FILE, status, "epol_ctl(MOD) error (events=0x%x)",
+		      events));
     }
 }
-
 
 /* ioqueue_remove_from_set()
  * This function is called from ioqueue_dispatch_event() to instruct
@@ -641,13 +646,19 @@ static void update_epoll_event_set(pj_ioqueue_t *ioqueue,
  */
 static void ioqueue_remove_from_set( pj_ioqueue_t *ioqueue,
                                      pj_ioqueue_key_t *key, 
-                                     enum ioqueue_event_type event_type)
+                                     unsigned event_types)
 {
-    /* Remove EPOLLOUT if write event received and no pending send */
-    if (event_type == WRITEABLE_EVENT && !key_has_pending_write(key)) {
-	pj_uint32_t ev = EPOLLIN | EPOLLERR;
-	update_epoll_event_set(ioqueue, key, ev);
-    }
+    pj_uint32_t events = key->ev.events;
+
+    if (event_types & READABLE_EVENT)
+	events &= ~EPOLLIN;
+    if (event_types & WRITEABLE_EVENT)
+	events &= ~EPOLLOUT;
+    if (event_types & EXCEPTION_EVENT)
+	events &= ~EPOLLERR;
+
+    if (events != key->ev.events)
+	update_epoll_event_set(ioqueue, key, events);
 }
 
 /*
@@ -658,26 +669,19 @@ static void ioqueue_remove_from_set( pj_ioqueue_t *ioqueue,
  */
 static void ioqueue_add_to_set( pj_ioqueue_t *ioqueue,
                                 pj_ioqueue_key_t *key,
-                                enum ioqueue_event_type event_type )
+                                unsigned event_types )
 {
-    if (ioqueue->use_epolloneshot) {
-	/* For EPOLLONESHOT, always rearm ioqueue for events. */
-	PJ_UNUSED_ARG(event_type);
-	pj_uint32_t ev = EPOLLIN | EPOLLERR;
-	if (key_has_pending_connect(key) || key_has_pending_write(key))
-	    ev |= EPOLLOUT;
-	update_epoll_event_set(ioqueue, key, ev);
-    } else {
-	/* Add EPOLLOUT if write-event requested (other events are always set)
-	 */
-	if (event_type == WRITEABLE_EVENT) {
-	    pj_uint32_t ev = EPOLLIN | EPOLLERR;
-	    if (key_has_pending_connect(key) || key_has_pending_write(key))
-		ev |= EPOLLOUT;
+    pj_uint32_t events = key->ev.events;
 
-	    update_epoll_event_set(ioqueue, key, ev);
-	}
-    }
+    if (event_types & READABLE_EVENT)
+	events |= EPOLLIN;
+    if (event_types & WRITEABLE_EVENT)
+	events |= EPOLLOUT;
+    if (event_types & EXCEPTION_EVENT)
+	events |= EPOLLERR;
+
+    if (events != key->ev.events)
+	update_epoll_event_set(ioqueue, key, events);
 }
 
 #if PJ_IOQUEUE_HAS_SAFE_UNREG
@@ -840,7 +844,7 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 	     * to receive future events.
 	     */
 	    if (!IS_CLOSING(h))
-		ioqueue_add_to_set(ioqueue, h, 0);
+		update_epoll_event_set(ioqueue, h, h->ev.events);
 	}
     }
     for (i=0; i<event_cnt; ++i) {
@@ -899,7 +903,7 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 	     */
 	    pj_ioqueue_lock_key(queue[i].key);
 	    if (!IS_CLOSING(queue[i].key))
-		ioqueue_add_to_set(ioqueue, queue[i].key, 0);
+		update_epoll_event_set(ioqueue, queue[i].key, queue[i].key->ev.events);
 	    pj_ioqueue_unlock_key(queue[i].key);
 	}
 
@@ -933,8 +937,9 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
          * the amount of time already used for epoll_wait().
          */
 	int delay = msec - pj_elapsed_usec(&t1, &t2)/1000;
-        if (delay > 0)
-	    pj_thread_sleep(delay);
+	if (delay > 10)
+	    delay = 10;
+	pj_thread_sleep(delay);
     }
 
     TRACE_((THIS_FILE, "     poll: count=%d events=%d processed=%d",

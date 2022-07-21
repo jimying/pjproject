@@ -648,16 +648,16 @@ static void validate_sets(const pj_ioqueue_t *ioqueue,
  */
 static void ioqueue_remove_from_set( pj_ioqueue_t *ioqueue,
                                      pj_ioqueue_key_t *key, 
-                                     enum ioqueue_event_type event_type)
+                                     unsigned event_types)
 {
     pj_lock_acquire(ioqueue->lock);
 
-    if (event_type == READABLE_EVENT)
+    if ((event_types & READABLE_EVENT) && !key_has_pending_read(key))
         PJ_FD_CLR((pj_sock_t)key->fd, &ioqueue->rfdset);
-    else if (event_type == WRITEABLE_EVENT)
+    else if ((event_types & WRITEABLE_EVENT) && !key_has_pending_write(key))
         PJ_FD_CLR((pj_sock_t)key->fd, &ioqueue->wfdset);
 #if defined(PJ_HAS_TCP) && PJ_HAS_TCP!=0
-    else if (event_type == EXCEPTION_EVENT)
+    else if (event_types & EXCEPTION_EVENT)
         PJ_FD_CLR((pj_sock_t)key->fd, &ioqueue->xfdset);
 #endif
     else
@@ -674,16 +674,16 @@ static void ioqueue_remove_from_set( pj_ioqueue_t *ioqueue,
  */
 static void ioqueue_add_to_set( pj_ioqueue_t *ioqueue,
                                 pj_ioqueue_key_t *key,
-                                enum ioqueue_event_type event_type )
+                                unsigned event_types )
 {
     pj_lock_acquire(ioqueue->lock);
 
-    if (event_type == READABLE_EVENT)
+    if (event_types & READABLE_EVENT)
         PJ_FD_SET((pj_sock_t)key->fd, &ioqueue->rfdset);
-    else if (event_type == WRITEABLE_EVENT)
+    else if (event_types & WRITEABLE_EVENT)
         PJ_FD_SET((pj_sock_t)key->fd, &ioqueue->wfdset);
 #if defined(PJ_HAS_TCP) && PJ_HAS_TCP!=0
-    else if (event_type == EXCEPTION_EVENT)
+    else if (event_types & EXCEPTION_EVENT)
         PJ_FD_SET((pj_sock_t)key->fd, &ioqueue->xfdset);
 #endif
     else

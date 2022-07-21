@@ -14,6 +14,8 @@ esac
 
 #export CFLAGS="-g"
 #export CFLAGS="-DNDEBUG"
+#export CFLAGS="-g -O1 -fsanitize=thread"
+#export LDFLAGS="-fsanitize=thread"
 $MAKE distclean
 ./configure --prefix=$BUILD_OUT/pjsip \
     --enable-epoll \
@@ -37,3 +39,4 @@ $MAKE dep
 $MAKE -C pjlib/build -j  $JOBS
 $MAKE -C pjlib-util/build -j  $JOBS
 $MAKE -C pjnath/build -j  $JOBS
+#$MAKE -j $JOBS

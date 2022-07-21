@@ -235,9 +235,7 @@ pj_bool_t ioqueue_dispatch_write_event( pj_ioqueue_t *ioqueue,
 	/* Clear operation. */
 	h->connecting = 0;
 
-        ioqueue_remove_from_set(ioqueue, h, WRITEABLE_EVENT);
-        ioqueue_remove_from_set(ioqueue, h, EXCEPTION_EVENT);
-
+	ioqueue_remove_from_set(ioqueue, h, WRITEABLE_EVENT | EXCEPTION_EVENT);
 
 #if (defined(PJ_HAS_SO_ERROR) && PJ_HAS_SO_ERROR!=0)
 	/* from connect(2): 
@@ -670,8 +668,7 @@ pj_bool_t ioqueue_dispatch_exception_event( pj_ioqueue_t *ioqueue,
     /* Clear operation. */
     h->connecting = 0;
 
-    ioqueue_remove_from_set(ioqueue, h, WRITEABLE_EVENT);
-    ioqueue_remove_from_set(ioqueue, h, EXCEPTION_EVENT);
+    ioqueue_remove_from_set(ioqueue, h, WRITEABLE_EVENT | EXCEPTION_EVENT);
 
     /* Unlock; from this point we don't need to hold key's mutex
      * (unless concurrency is disabled, which in this case we should
@@ -1241,9 +1238,8 @@ PJ_DEF(pj_status_t) pj_ioqueue_connect( pj_ioqueue_key_t *key,
 		return PJ_ECANCELLED;
 	    }
 	    key->connecting = PJ_TRUE;
-            ioqueue_add_to_set(key->ioqueue, key, WRITEABLE_EVENT);
-            ioqueue_add_to_set(key->ioqueue, key, EXCEPTION_EVENT);
-            pj_ioqueue_unlock_key(key);
+	    ioqueue_add_to_set(key->ioqueue, key, WRITEABLE_EVENT | EXCEPTION_EVENT);
+	    pj_ioqueue_unlock_key(key);
 	    return PJ_EPENDING;
 	} else {
 	    /* Error! */
@@ -1344,8 +1340,7 @@ PJ_DEF(pj_status_t) pj_ioqueue_post_completion( pj_ioqueue_key_t *key,
     /* Clear connecting operation. */
     if (key->connecting) {
         key->connecting = 0;
-        ioqueue_remove_from_set(key->ioqueue, key, WRITEABLE_EVENT);
-        ioqueue_remove_from_set(key->ioqueue, key, EXCEPTION_EVENT);
+        ioqueue_remove_from_set(key->ioqueue, key, WRITEABLE_EVENT | EXCEPTION_EVENT);
     }
 
     pj_ioqueue_unlock_key(key);
@@ -1367,9 +1362,8 @@ PJ_DEF(pj_status_t) pj_ioqueue_clear_key( pj_ioqueue_key_t *key )
     key->connecting = 0;
 
     /* Remove key from sets */
-    ioqueue_remove_from_set(key->ioqueue, key, READABLE_EVENT);
-    ioqueue_remove_from_set(key->ioqueue, key, WRITEABLE_EVENT);
-    ioqueue_remove_from_set(key->ioqueue, key, EXCEPTION_EVENT);
+    ioqueue_remove_from_set(key->ioqueue, key,
+			    READABLE_EVENT | WRITEABLE_EVENT | EXCEPTION_EVENT);
 
     pj_ioqueue_unlock_key(key);
 
