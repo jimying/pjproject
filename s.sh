@@ -12,7 +12,7 @@ case $OS in
         ;;
 esac
 
-#export CFLAGS="-g"
+#export CFLAGS="-g -D_FORTIFY_SOURCE=1 -O2"
 #export CFLAGS="-DNDEBUG"
 #export CFLAGS="-g -O1 -fsanitize=thread"
 #export LDFLAGS="-fsanitize=thread"
