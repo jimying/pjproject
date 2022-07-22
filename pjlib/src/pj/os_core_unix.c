@@ -629,10 +629,11 @@ static void set_thread_display_name(const char *name)
 {
 #if (defined(PJ_LINUX) && PJ_LINUX != 0) ||                                    \
     (defined(PJ_ANDROID) && PJ_ANDROID != 0)
-    char xname[16];
+    char xname[32];
     // On linux, thread display name length is restricted to 16 (include '\0')
     if (pj_ansi_strlen(name) >= 16) {
-	pj_ansi_snprintf(xname, 16, "%s", name);
+	pj_ansi_snprintf(xname, sizeof(xname), "%s", name);
+	xname[15] = '\0';
 	name = xname;
     }
 #endif

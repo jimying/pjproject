@@ -364,7 +364,6 @@ PJ_DEF(pj_status_t) pj_ioqueue_register_sock2(pj_pool_t *pool,
 {
     pj_ioqueue_key_t *key = NULL;
     pj_uint32_t value;
-    struct epoll_event ev;
     int status;
     pj_status_t rc = PJ_SUCCESS;
     
