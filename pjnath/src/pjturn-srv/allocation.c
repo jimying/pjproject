@@ -409,6 +409,7 @@ static void destroy_relay(pj_turn_relay_res *relay)
     }
 
     if (relay->tp.key) {
+	pj_ioqueue_clear_key(relay->tp.key);
 	pj_ioqueue_unregister(relay->tp.key);
 	relay->tp.key = NULL;
 	relay->tp.sock = PJ_INVALID_SOCKET;
@@ -483,10 +484,9 @@ PJ_DEF(void) pj_turn_allocation_on_transport_closed( pj_turn_allocation *alloc,
     PJ_LOG(5,(alloc->obj_name, "Transport %s unexpectedly closed, destroying "
 	      "allocation %s", tp->info, alloc->info));
     pj_lock_acquire(alloc->lock);
-    alloc->relay.lifetime = 0;
-    pj_lock_release(alloc->lock);
     alloc->transport = NULL;
     alloc_shutdown(alloc);
+    pj_lock_release(alloc->lock);
 }
 
 
@@ -578,7 +578,9 @@ static void relay_timeout_cb(pj_timer_heap_t *heap, pj_timer_entry *e)
 		  "Client %s refresh timed-out, shutting down..",
 		  alloc->info));
 
+	pj_lock_acquire(alloc->lock);
 	alloc_shutdown(alloc);
+	pj_lock_release(alloc->lock);
 
     } else if (e->id == TIMER_ID_DESTROY) {
 	e->id = TIMER_ID_NONE;
@@ -1416,8 +1418,8 @@ static pj_status_t relay_to_peer(pj_turn_relay_res *relay,
     const char *tag = relay->allocation->obj_name;
 
     // Check send key value
-    if (!relay->tp.key) {
-	PJ_LOG(4, (tag, "Can't relay to peer, tp.key is null"));
+    if (!relay->lifetime) {
+	PJ_LOG(4, (tag, "Can't relay to peer, lifetime = 0"));
 	return PJ_EINVALIDOP;
     }
 
