@@ -20,5 +20,7 @@ AllowShortEnumsOnASingleLine: false
 AllowAllParametersOfDeclarationOnNextLine: false
 BinPackParameters: false
 
+PenaltyReturnTypeOnItsOwnLine: 2000
+
 ...
 
