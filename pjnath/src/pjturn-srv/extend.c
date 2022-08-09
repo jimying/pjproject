@@ -291,8 +291,8 @@ static void http_on_read_complete(pj_ioqueue_key_t *key,
 	     * Note: the -PJ_EPENDING is the value passed during init.
 	     */
 	    if (bytes_read != 0) {
-		pj_util_show_err(tcp->pool->obj_name, "TCP socket error",
-				 -bytes_read);
+		PJ_PERROR(2, (tcp->pool->obj_name, -bytes_read,
+			      "TCP socket error(%d)", -bytes_read));
 	    } else {
 		PJ_LOG(4, (tcp->pool->obj_name, "TCP socket closed"));
 	    }
@@ -488,7 +488,7 @@ pj_status_t pj_turn_config_load(void)
 
     rc = pj_file_open(tmp_pool, PJ_TURN_CONFIG_FILE, PJ_O_RDONLY, &fd);
     if (rc != PJ_SUCCESS) {
-	pj_util_show_err(pcfg->pool->obj_name, "open turn config", rc);
+	PJ_PERROR(2, (pcfg->pool->obj_name, rc, "open turn config(%d)", rc));
 	return rc;
     }
 
@@ -497,7 +497,7 @@ pj_status_t pj_turn_config_load(void)
     rc = pj_file_read(fd, fdata, (pj_ssize_t *)&fsize);
     if (rc != PJ_SUCCESS) {
 	pj_file_close(fd);
-	pj_util_show_err(pcfg->pool->obj_name, "read file", rc);
+	PJ_PERROR(2, (pcfg->pool->obj_name, rc, "read file(%d)", rc));
 	return rc;
     }
     pj_file_close(fd);

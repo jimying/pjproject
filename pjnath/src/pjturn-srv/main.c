@@ -28,6 +28,7 @@
 
 #define REALM		"pjsip.org"
 #define LOG_LEVEL	4
+#define THIS_FILE   "main.c"
 
 static pj_caching_pool g_cp;
 static pj_bool_t g_daemon = PJ_FALSE;
@@ -181,8 +182,8 @@ static int sys_daemon(void)
 	return errno;
     if (freopen("/dev/null", "w", stdout) == NULL)
 	return errno;
-    if (freopen("/dev/null", "w", stderr) == NULL)
-	return errno;
+    // if (freopen("/dev/null", "w", stderr) == NULL)
+    // return errno;
 
     return 0;
 #else
@@ -232,7 +233,7 @@ static void dump_pid()
 
     rc = pj_file_open(tmp_pool, "./turnserver.pid", PJ_O_WRONLY, &fd);
     if (rc != PJ_SUCCESS) {
-	pj_util_show_err(NULL, "open pid file error", rc);
+	PJ_PERROR(1, (THIS_FILE, rc, "open pid file error"));
 	return;
     }
 
@@ -240,6 +241,11 @@ static void dump_pid()
     str_pid.slen = pj_ansi_sprintf(str_pid.ptr, "%u", pj_getpid());
     pj_file_write(fd, str_pid.ptr, &str_pid.slen);
     pj_file_close(fd);
+}
+
+static void log_callback(int level, const char *data, int len)
+{
+    fprintf(level < 2 ? stderr : stdout, "%.*s", len, data);
 }
 
 int main(int argc, char **argv)
@@ -254,9 +260,12 @@ int main(int argc, char **argv)
     int i;
 
     status = pj_init();
-    if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "pj_init() error", status);
+    if (status != PJ_SUCCESS) {
+	PJ_PERROR(1, (THIS_FILE, status, "pj_init() error(%d)", status));
+	return status;
+    }
 
+    pj_log_set_log_func(log_callback);
     pj_log_set_level(LOG_LEVEL);
 
     // pj_dump_config();
@@ -277,14 +286,18 @@ int main(int argc, char **argv)
     pj_turn_auth_init(REALM);
 
     status = pj_turn_srv_create(&g_cp.factory, &srv);
-    if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "Error creating server", status);
+    if (status != PJ_SUCCESS) {
+	PJ_PERROR(1, (THIS_FILE, status, "Error creating server"));
+	return status;
+    }
 
     nworkers = srv->core.thread_cnt;
 
     status = pj_enum_ip_interface(pj_AF_INET(), &addr_cnt, addr_list);
-    if (status != PJ_SUCCESS)
-	return pj_util_show_err(NULL, "Error enum ip interface", status);
+    if (status != PJ_SUCCESS) {
+	PJ_PERROR(1, (THIS_FILE, status, "Error enum ip interface"));
+	return status;
+    }
 
     for (i = 0; i < addr_cnt; i++) {
 	char ip[80];
@@ -294,33 +307,49 @@ int main(int argc, char **argv)
 	status = pj_turn_listener_create_udp(srv, pj_AF_INET(), &sip,
 					     pcfg->listening_port, nworkers, 0,
 					     &listener);
-	if (status != PJ_SUCCESS)
-	    return pj_util_show_err(NULL, "Error creating UDP listener",
-				    status);
+	if (status != PJ_SUCCESS) {
+	    PJ_PERROR(1,
+		      (THIS_FILE, status, "Error creating UDP listener %.*s:%d",
+		       (int)sip.slen, sip.ptr, pcfg->listening_port));
+	    return status;
+	}
 
 	status = pj_turn_srv_add_listener(srv, listener);
-	if (status != PJ_SUCCESS)
-	    return pj_util_show_err(NULL, "Error adding UDP listener", status);
+	if (status != PJ_SUCCESS) {
+	    PJ_PERROR(1,
+		      (THIS_FILE, status, "Error adding UDP listener %.*s:%d",
+		       (int)sip.slen, sip.ptr, pcfg->listening_port));
+	    return status;
+	}
 
 #if PJ_HAS_TCP
 	status = pj_turn_listener_create_tcp(srv, pj_AF_INET(), &sip,
 					     pcfg->listening_port, nworkers, 0,
 					     &listener);
-	if (status != PJ_SUCCESS)
-	    return pj_util_show_err(NULL, "Error creating TCP listener",
-				    status);
+	if (status != PJ_SUCCESS) {
+	    PJ_PERROR(1,
+		      (THIS_FILE, status, "Error creating TCP listener %.*s:%d",
+		       (int)sip.slen, sip.ptr, pcfg->listening_port));
+	    return status;
+	}
 
 	status = pj_turn_srv_add_listener(srv, listener);
-	if (status != PJ_SUCCESS)
-	    return pj_util_show_err(NULL, "Error adding TCP listener", status);
+	if (status != PJ_SUCCESS) {
+	    PJ_PERROR(1,
+		      (THIS_FILE, status, "Error adding TCP listener %.*s:%d",
+		       (int)sip.slen, sip.ptr, pcfg->listening_port));
+	    return status;
+	}
 #endif
     }
 
 #if PJ_HAS_TCP
     status = pj_turn_create_http_admin(srv, pj_AF_INET(), NULL,
 				       pcfg->listening_port - 1, 1);
-    if (status != PJ_SUCCESS)
-	pj_util_show_err(NULL, "Error creating HTTP listener", status);
+    if (status != PJ_SUCCESS) {
+	PJ_PERROR(1, (THIS_FILE, status, "Error creating HTTP listener %d",
+		      pcfg->listening_port - 1));
+    }
 #endif
 
     puts("Server is running");

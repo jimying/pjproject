@@ -1428,7 +1428,7 @@ static pj_status_t relay_to_peer(pj_turn_relay_res *relay,
 	if (status == PJ_EPENDING) {
 	    PJ_LOG(4, (tag, "relay-peer sendto pending"));
 	} else {
-	    pj_util_show_err(tag, "relay-peer sendto error", status);
+	    PJ_PERROR(2, (tag, status, "relay-peer sendto error(%d)", status));
 	}
     }
     return status;

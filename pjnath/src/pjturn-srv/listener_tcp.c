@@ -201,7 +201,7 @@ static void lis_on_accept_complete(pj_ioqueue_key_t *key,
 	    transport_create(accept_op->sock, &tcp_lis->base,
 			     &accept_op->src_addr, accept_op->src_addr_len);
 	} else if (status != PJ_EPENDING && status != PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
-	    pj_util_show_err(tcp_lis->base.obj_name, "accept()", status);
+	    PJ_PERROR(2, (tcp_lis->base.obj_name, status, "accept(%d)", status));
 	}
 
 	/* Prepare next accept() */
@@ -447,8 +447,8 @@ static void tcp_on_read_complete(pj_ioqueue_key_t *key,
 	     */
 	    if (tcp->alloc) {
 		if (bytes_read != 0) {
-		    pj_util_show_err(tcp->base.obj_name, "TCP socket error", 
-			     -bytes_read);
+		    PJ_PERROR(2, (tcp->base.obj_name, -bytes_read,
+				  "TCP socket error(%d)", -bytes_read));
 		} else {
 		    PJ_LOG(5,(tcp->base.obj_name, "TCP socket closed"));
 		}
@@ -503,7 +503,7 @@ static pj_status_t tcp_sendto(pj_turn_transport *tp,
 	pj_ioqueue_send(tcp->key, &tcp->send_op, packet, &length, flag);
 
     if (status != PJ_SUCCESS) {
-	pj_util_show_err(tcp->base.obj_name, "send error", status);
+	PJ_PERROR(2, (tcp->base.obj_name, status, "send error(%d)", status));
     }
 
     return status;

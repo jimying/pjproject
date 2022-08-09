@@ -606,18 +606,6 @@ PJ_INLINE(void) pj_util_disable_tcp_timewait(pj_sock_t sock)
 		       sizeof(so_linger));
 }
 
-/**
- * show error
- */
-PJ_INLINE(pj_status_t)
-pj_util_show_err(const char *sender, const char *title, pj_status_t status)
-{
-    char errmsg[PJ_ERR_MSG_SIZE];
-    pj_strerror(status, errmsg, sizeof(errmsg));
-    PJ_LOG(2, (sender ? sender : "", "%s: %s (%d)", title, errmsg, status));
-    return status;
-}
-
 /****************************************************************************/
 #ifndef PJ_TURN_MIN_PORT
 #define PJ_TURN_MIN_PORT 50000

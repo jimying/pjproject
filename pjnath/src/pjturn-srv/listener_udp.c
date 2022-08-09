@@ -215,7 +215,7 @@ static pj_status_t udp_sendto(pj_turn_transport *tp,
 	if (status == PJ_EPENDING) {
 	    PJ_LOG(4, (udp->base.obj_name, "sendto pending"));
 	} else {
-	    pj_util_show_err(udp->base.obj_name, "sendto error", status);
+	    PJ_PERROR(2, (udp->base.obj_name, status, "sendto error(%d)", status));
 	}
     }
 
