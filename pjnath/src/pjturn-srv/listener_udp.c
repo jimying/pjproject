@@ -72,6 +72,7 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_udp( pj_turn_srv *srv,
     pj_ioqueue_callback ioqueue_cb;
     unsigned i;
     pj_status_t status;
+    const pj_turn_config *pcfg = pj_turn_get_config();
 
     /* Create structure */
     pool = pj_pool_create(srv->core.pf, "udp%p", 1000, 1000, NULL);
@@ -99,6 +100,10 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_udp( pj_turn_srv *srv,
 
     /* set sock buffer size */
     pj_util_set_sock_buf_size(udp->base.sock, PJ_TURN_UDP_SOCK_BUF_SIZE);
+
+    /* set tos */
+    if (pcfg->dscp_udp > 0)
+	pj_turn_set_tos(udp->base.sock, pcfg->dscp_udp);
 
     /* Init bind address */
     status = pj_sockaddr_init(af, &udp->base.addr, bound_addr, 

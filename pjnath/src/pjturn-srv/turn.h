@@ -634,9 +634,12 @@ typedef struct {
     pj_str_t realm;             // realm
     pj_turn_user_acc users[8];  // users
     pj_uint32_t user_cnt;
+    int dscp_udp; // UDP: dscp value
+    int dscp_tcp; // TCP: dscp value
 } pj_turn_config;
 
 const pj_turn_config *pj_turn_get_config(void);
+pj_status_t pj_turn_set_tos(pj_sock_t sock, int dscp);
 
 #endif	/* __PJ_TURN_SRV_TURN_H__ */
 

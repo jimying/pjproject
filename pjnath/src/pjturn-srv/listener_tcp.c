@@ -273,6 +273,7 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
     struct tcp_transport *tcp;
     pj_ioqueue_callback cb;
     pj_status_t status;
+    const pj_turn_config *pcfg = pj_turn_get_config();
 
     pool = pj_pool_create(lis->server->core.pf, "tcp%p", 1000, 1000, NULL);
 
@@ -289,6 +290,10 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
 
     /* set sock buffer size */
     pj_util_set_sock_buf_size(sock, PJ_TURN_TCP_SOCK_BUF_SIZE);
+
+	/* set tos */
+    if (pcfg->dscp_tcp > 0)
+	pj_turn_set_tos(sock, pcfg->dscp_tcp);
 
     /* Register to ioqueue */
     pj_bzero(&cb, sizeof(cb));

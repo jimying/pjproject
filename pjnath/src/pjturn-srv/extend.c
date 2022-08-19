@@ -612,6 +612,14 @@ pj_status_t pj_turn_config_load(void)
 	    pj_strdup_with_null(pcfg->pool, &acc->pwd, &pwd);
 	    pcfg->user_cnt++;
 	}
+
+	else if (pj_strcmp2(&key, "dscp_udp") == 0) {
+	    pcfg->dscp_udp = pj_strtol(&val);
+	}
+
+	else if (pj_strcmp2(&key, "dscp_tcp") == 0) {
+	    pcfg->dscp_tcp = pj_strtol(&val);
+	}
     }
 
     pj_scan_fini(scanner);
@@ -630,6 +638,8 @@ void pj_turn_config_print(void)
     printf("\trelay-threads: %u\n", pcfg->relay_threads);
     printf("\tmin-port: %u\n", pcfg->min_port);
     printf("\tmax-port: %u\n", pcfg->max_port);
+    printf("\ttos: %d(0x%x) %d(0x%x)\n", pcfg->dscp_udp, pcfg->dscp_udp << 2,
+	   pcfg->dscp_tcp, pcfg->dscp_tcp << 2);
     printf("\tusers:\n");
     for (i = 0; i < pcfg->user_cnt; i++) {
 	const pj_turn_user_acc *acc = pcfg->users + i;
@@ -641,4 +651,16 @@ void pj_turn_config_print(void)
 const pj_turn_config *pj_turn_get_config(void)
 {
     return g_turn_cfg;
+}
+
+pj_status_t pj_turn_set_tos(pj_sock_t sock, int dscp)
+{
+    pj_qos_params param;
+    if (dscp < 0)
+	return PJ_EINVAL;
+
+    pj_bzero(&param, sizeof(param));
+    param.flags = PJ_QOS_PARAM_HAS_DSCP;
+    param.dscp_val = dscp;
+    return pj_sock_set_qos_params(sock, &param);
 }
