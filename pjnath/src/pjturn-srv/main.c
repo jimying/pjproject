@@ -132,8 +132,9 @@ static void console_main(pj_turn_srv *srv)
 static void parse_args(int argc, char **argv)
 {
     struct pj_getopt_option opts[] = {
-	{"help",   0, 0, 'h'},
+	{"help", 0, 0, 'h'},
 	{"daemon", 0, 0, 'o'},
+	{NULL, 0, 0, 0},
     };
 
     int opt_index;
