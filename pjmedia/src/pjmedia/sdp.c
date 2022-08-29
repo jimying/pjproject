@@ -780,9 +780,10 @@ static int print_media_desc(const pjmedia_sdp_media *m, char *buf, pj_size_t len
 }
 
 PJ_DEF(int) pjmedia_sdp_media_print(const pjmedia_sdp_media *media,
-			       char *buf, pj_size_t size)
+				    char *buf,
+				    pj_size_t size)
 {
-	return print_media_desc(media, buf, size);
+    return print_media_desc(media, buf, size);
 }
 
 PJ_DEF(pjmedia_sdp_media*) pjmedia_sdp_media_clone(
@@ -1100,6 +1101,12 @@ static void parse_connection_info(pj_scanner *scanner, pjmedia_sdp_conn *conn,
 {
     ctx->last_error = PJMEDIA_SDP_EINCONN;
 
+    /* check equal sign */
+    if (*(scanner->curptr+1) != '=') {
+	on_scanner_error(scanner);
+	return;
+    }
+
     /* c= */
     pj_scan_advance_n(scanner, 2, SKIP_WS);
 
@@ -1125,6 +1132,12 @@ static void parse_bandwidth_info(pj_scanner *scanner, pjmedia_sdp_bandw *bandw,
     pj_str_t str;
 
     ctx->last_error = PJMEDIA_SDP_EINBANDW;
+
+    /* check equal sign */
+    if (*(scanner->curptr+1) != '=') {
+	on_scanner_error(scanner);
+	return;
+    }
 
     /* b= */
     pj_scan_advance_n(scanner, 2, SKIP_WS);
@@ -1402,8 +1415,8 @@ PJ_DEF(pj_status_t) pjmedia_sdp_parse( pj_pool_t *pool,
 		case 'v':
 		    parse_version(&scanner, &ctx);
 		    break;
-		case 13:
-		case 10:
+		case '\r':
+		case '\n':
 		    pj_scan_get_char(&scanner);
 		    /* Allow empty newlines at the end of the message */
 		    while (!pj_scan_is_eof(&scanner)) {
