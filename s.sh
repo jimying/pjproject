@@ -13,7 +13,7 @@ case $OS in
 esac
 
 #export CFLAGS="-g"
-#export CFLAGS="-DNDEBUG"
+export CFLAGS="-DNDEBUG -fPIC"
 $MAKE distclean
 ./configure --prefix=$BUILD_OUT/pjsip \
     --enable-epoll \
@@ -28,12 +28,15 @@ $MAKE distclean
     --disable-libwebrtc \
     --disable-sound \
     --disable-opus \
-    --disable-ssl
+    --disable-ssl \
+    --disable-libsrtp
     #--with-opus=$BUILD_OUT/opus
 
 rm -f pjlib/include/pj/config_site.h
 cp -f config_site.h pjlib/include/pj
 $MAKE dep
-$MAKE -C pjlib/build -j  $JOBS
-$MAKE -C pjlib-util/build -j  $JOBS
-$MAKE -C pjnath/build -j  $JOBS
+#$MAKE -C pjlib/build -j  $JOBS
+#$MAKE -C pjlib-util/build -j  $JOBS
+#$MAKE -C pjnath/build -j  $JOBS
+$MAKE -j $JOBS
+$MAKE install
