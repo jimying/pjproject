@@ -503,14 +503,13 @@ pj_status_t pj_turn_config_load(void)
     pj_file_close(fd);
 
     scanner = PJ_POOL_ALLOC_T(tmp_pool, pj_scanner);
-    pj_scan_init(scanner, fdata, fsize, PJ_SCAN_AUTOSKIP_WS, NULL);
+    pj_scan_init(scanner, fdata, fsize, 0, NULL);
 
     while (!pj_scan_is_eof(scanner)) {
 	pj_str_t key, val;
 
-	if (*scanner->curptr == ' ' || *scanner->curptr == '\t' ||
-	    *scanner->curptr == '\r' || *scanner->curptr == '\n') {
-	    pj_scan_get_char(scanner);
+	if (pj_isspace(scanner)) {
+	    scanner->curptr++;
 	    continue;
 	}
 
