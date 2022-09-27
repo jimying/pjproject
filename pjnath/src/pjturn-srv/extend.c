@@ -508,7 +508,7 @@ pj_status_t pj_turn_config_load(void)
     while (!pj_scan_is_eof(scanner)) {
 	pj_str_t key, val;
 
-	if (pj_isspace(scanner)) {
+	if (pj_isspace(*scanner->curptr)) {
 	    scanner->curptr++;
 	    continue;
 	}
