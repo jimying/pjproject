@@ -1085,7 +1085,7 @@ static void on_rx_from_peer(pj_ioqueue_key_t *key,
 
 	else if (bytes_read != -PJ_EPENDING &&
 		 bytes_read != -PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
-	    return;
+	    break;
 	}
 
 	/* Read next packet */
