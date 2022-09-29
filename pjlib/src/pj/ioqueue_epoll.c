@@ -720,7 +720,8 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
     enum { MAX_EVENTS = PJ_IOQUEUE_MAX_CAND_EVENTS };
     struct epoll_event events[MAX_EVENTS];
     struct queue queue[MAX_EVENTS];
-    
+    pj_ioqueue_key_t *h;
+
     PJ_CHECK_STACK();
 
     msec = timeout ? PJ_TIME_VAL_MSEC(*timeout) : 9000;
@@ -754,8 +755,9 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
     pj_lock_acquire(ioqueue->lock);
 
     for (event_cnt = 0, i = 0; i < count; ++i) {
-	pj_ioqueue_key_t *h = (pj_ioqueue_key_t *)events[i].epoll_data;
 	int event_type = NO_EVENT;
+	h = (pj_ioqueue_key_t *)events[i].epoll_data;
+
 	TRACE_((THIS_FILE, "event %d: events=%d", i, events[i].events));
 
 	if (IS_CLOSING(h))
@@ -766,49 +768,44 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 	 */
 	if ((events[i].events & EPOLLIN) &&
 	    (key_has_pending_read(h) || key_has_pending_accept(h))) {
-	    event_type = READABLE_EVENT;
+	    event_type |= READABLE_EVENT;
 	}
 
 	/*
 	 * Check for writeability.
 	 */
-	else if ((events[i].events & EPOLLOUT) && key_has_pending_write(h)) {
-	    event_type = WRITEABLE_EVENT;
+	if ((events[i].events & EPOLLOUT) && key_has_pending_write(h)) {
+	    event_type |= WRITEABLE_EVENT;
 	}
 
 #if PJ_HAS_TCP
 	/*
 	 * Check for completion of connect() operation.
 	 */
-	else if ((events[i].events & EPOLLOUT) && (h->connecting)) {
-	    event_type = WRITEABLE_EVENT;
+	if ((events[i].events & EPOLLOUT) && (h->connecting)) {
+	    event_type |= WRITEABLE_EVENT;
 	}
 #endif /* PJ_HAS_TCP */
 
 	/*
 	 * Check for error condition.
 	 */
-	else if ((events[i].events & EPOLLERR)) {
+	if ((events[i].events & EPOLLERR)) {
 	    /*
 	     * We need to handle this exception event.  If it's related to us
 	     * connecting, report it as such.  If not, just report it as a
 	     * read event and the higher layers will handle it.
 	     */
 	    if (h->connecting) {
-		event_type = EXCEPTION_EVENT;
+		event_type |= EXCEPTION_EVENT;
 	    } else if (key_has_pending_read(h) || key_has_pending_accept(h)) {
-		event_type = READABLE_EVENT;
+		event_type |= READABLE_EVENT;
 	    }
 	}
 
-	if (ioqueue->use_epolloneshot) {
-	    /* We are not processing this event, but we still need to rearm
-	     * to receive future events.
-	     */
-	    if (!IS_CLOSING(h))
-		ioqueue_add_to_set(ioqueue, h, 0);
-	}
-
+	/*
+	 * Mark event as changed.
+	 */
 	if (event_type != NO_EVENT && !IS_CLOSING(h)) {
 	    queue[event_cnt].key = h;
 	    queue[event_cnt].event_type = event_type;
@@ -818,6 +815,15 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 #endif
 	    if (h->grp_lock)
 		pj_grp_lock_add_ref_dbg(h->grp_lock, "ioqueue", 0);
+	    continue;
+	}
+
+	if (ioqueue->use_epolloneshot) {
+	    /* We are not processing this event, but we still need to rearm
+	     * to receive future events.
+	     */
+	    if (!IS_CLOSING(h))
+		ioqueue_add_to_set(ioqueue, h, 0);
 	}
     }
 
@@ -831,25 +837,23 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 
     /* Now process the events. */
     for (i = 0; i < event_cnt; ++i) {
-	pj_ioqueue_key_t *h = queue[i].key;
+	h = queue[i].key;
 
 	/* Just do not exceed PJ_IOQUEUE_MAX_EVENTS_IN_SINGLE_POLL */
 	if (processed_cnt < PJ_IOQUEUE_MAX_EVENTS_IN_SINGLE_POLL) {
 	    pj_bool_t event_done = PJ_FALSE;
-	    switch (queue[i].event_type) {
-	    case READABLE_EVENT:
-		event_done = ioqueue_dispatch_read_event(ioqueue, h);
-		break;
-	    case WRITEABLE_EVENT:
-		event_done = ioqueue_dispatch_write_event(ioqueue, h);
-		break;
-	    case EXCEPTION_EVENT:
-		event_done = ioqueue_dispatch_exception_event(ioqueue, h);
-		break;
-	    case NO_EVENT:
-		pj_assert(!"Invalid event!");
-		break;
+	    int event_type = queue[i].event_type;
+
+	    if (event_type & READABLE_EVENT) {
+		event_done |= ioqueue_dispatch_read_event(ioqueue, h);
 	    }
+	    if (event_type & WRITEABLE_EVENT) {
+		event_done |= ioqueue_dispatch_write_event(ioqueue, h);
+	    }
+	    if (event_type & EXCEPTION_EVENT) {
+		event_done |= ioqueue_dispatch_exception_event(ioqueue, h);
+	    }
+
 	    if (event_done) {
 		++processed_cnt;
 	    }

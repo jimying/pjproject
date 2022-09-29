@@ -133,13 +133,11 @@ union operation_key
     pj_bool_t		default_concurrency;
 #endif
 
-
-enum ioqueue_event_type
-{
-    NO_EVENT,
-    READABLE_EVENT,
-    WRITEABLE_EVENT,
-    EXCEPTION_EVENT,
+enum ioqueue_event_type {
+    NO_EVENT = 0,
+    READABLE_EVENT = 1,
+    WRITEABLE_EVENT = 2,
+    EXCEPTION_EVENT = 4,
 };
 
 static void ioqueue_add_to_set( pj_ioqueue_t *ioqueue,
