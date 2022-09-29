@@ -644,22 +644,23 @@ PJ_DEF(int) pj_ioqueue_poll(pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
 
 	/* Just do not exceed PJ_IOQUEUE_MAX_EVENTS_IN_SINGLE_POLL */
 	if (processed_cnt < PJ_IOQUEUE_MAX_EVENTS_IN_SINGLE_POLL) {
+	    pj_bool_t event_done = PJ_FALSE;
 	    switch (queue[i].event_type) {
 	    case READABLE_EVENT:
-		if (ioqueue_dispatch_read_event(ioqueue, h))
-		    ++processed_cnt;
+		event_done = ioqueue_dispatch_read_event(ioqueue, h);
 		break;
 	    case WRITEABLE_EVENT:
-		if (ioqueue_dispatch_write_event(ioqueue, h))
-		    ++processed_cnt;
+		event_done = ioqueue_dispatch_write_event(ioqueue, h);
 		break;
 	    case EXCEPTION_EVENT:
-		if (ioqueue_dispatch_exception_event(ioqueue, h))
-		    ++processed_cnt;
+		event_done = ioqueue_dispatch_exception_event(ioqueue, h);
 		break;
 	    case NO_EVENT:
 		pj_assert(!"Invalid event!");
 		break;
+	    }
+	    if (event_done) {
+		++processed_cnt;
 	    }
 	}
 #if PJ_IOQUEUE_HAS_SAFE_UNREG
