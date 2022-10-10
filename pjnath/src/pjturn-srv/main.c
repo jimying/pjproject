@@ -305,41 +305,46 @@ int main(int argc, char **argv)
 	pj_str_t sip;
 	pj_sockaddr_print(&addr_list[i], ip, sizeof(ip), 0);
 	sip = pj_str(ip);
-	status = pj_turn_listener_create_udp(srv, pj_AF_INET(), &sip,
-					     pcfg->listening_port, nworkers, 0,
-					     &listener);
-	if (status != PJ_SUCCESS) {
-	    PJ_PERROR(1,
-		      (THIS_FILE, status, "Error creating UDP listener %.*s:%d",
-		       (int)sip.slen, sip.ptr, pcfg->listening_port));
-	    return status;
-	}
 
-	status = pj_turn_srv_add_listener(srv, listener);
-	if (status != PJ_SUCCESS) {
-	    PJ_PERROR(1,
-		      (THIS_FILE, status, "Error adding UDP listener %.*s:%d",
-		       (int)sip.slen, sip.ptr, pcfg->listening_port));
-	    return status;
+	if (!pcfg->no_udp) {
+	    status = pj_turn_listener_create_udp(srv, pj_AF_INET(), &sip,
+						 pcfg->listening_port, nworkers,
+						 0, &listener);
+	    if (status != PJ_SUCCESS) {
+		PJ_PERROR(1, (THIS_FILE, status,
+			      "Error creating UDP listener %.*s:%d",
+			      (int)sip.slen, sip.ptr, pcfg->listening_port));
+		return status;
+	    }
+
+	    status = pj_turn_srv_add_listener(srv, listener);
+	    if (status != PJ_SUCCESS) {
+		PJ_PERROR(1, (THIS_FILE, status,
+			      "Error adding UDP listener %.*s:%d",
+			      (int)sip.slen, sip.ptr, pcfg->listening_port));
+		return status;
+	    }
 	}
 
 #if PJ_HAS_TCP
-	status = pj_turn_listener_create_tcp(srv, pj_AF_INET(), &sip,
-					     pcfg->listening_port, nworkers, 0,
-					     &listener);
-	if (status != PJ_SUCCESS) {
-	    PJ_PERROR(1,
-		      (THIS_FILE, status, "Error creating TCP listener %.*s:%d",
-		       (int)sip.slen, sip.ptr, pcfg->listening_port));
-	    return status;
-	}
+	if (!pcfg->no_tcp) {
+	    status = pj_turn_listener_create_tcp(srv, pj_AF_INET(), &sip,
+						 pcfg->listening_port, nworkers,
+						 0, &listener);
+	    if (status != PJ_SUCCESS) {
+		PJ_PERROR(1, (THIS_FILE, status,
+			      "Error creating TCP listener %.*s:%d",
+			      (int)sip.slen, sip.ptr, pcfg->listening_port));
+		return status;
+	    }
 
-	status = pj_turn_srv_add_listener(srv, listener);
-	if (status != PJ_SUCCESS) {
-	    PJ_PERROR(1,
-		      (THIS_FILE, status, "Error adding TCP listener %.*s:%d",
-		       (int)sip.slen, sip.ptr, pcfg->listening_port));
-	    return status;
+	    status = pj_turn_srv_add_listener(srv, listener);
+	    if (status != PJ_SUCCESS) {
+		PJ_PERROR(1, (THIS_FILE, status,
+			      "Error adding TCP listener %.*s:%d",
+			      (int)sip.slen, sip.ptr, pcfg->listening_port));
+		return status;
+	    }
 	}
 #endif
     }

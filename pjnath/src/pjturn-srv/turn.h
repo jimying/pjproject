@@ -636,6 +636,8 @@ typedef struct {
     pj_uint32_t user_cnt;
     int dscp_udp; // UDP: dscp value
     int dscp_tcp; // TCP: dscp value
+    pj_bool_t no_udp; // no-udp
+    pj_bool_t no_tcp; // no-tcp
 } pj_turn_config;
 
 const pj_turn_config *pj_turn_get_config(void);

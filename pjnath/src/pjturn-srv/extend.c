@@ -522,10 +522,10 @@ pj_status_t pj_turn_config_load(void)
 	if (*scanner->curptr != '=') {
 	    // current line not match 'key = val'
 	    pj_scan_get_char(scanner);
-	    continue;
+	} else {
+	    pj_scan_get_char(scanner); // skip '='
+	    pj_scan_get_until_chr(scanner, " \t\r\n", &val);
 	}
-	pj_scan_get_char(scanner); // skip '='
-	pj_scan_get_until_chr(scanner, " \t\r\n", &val);
 
 	pj_strtrim(&key);
 	pj_strtrim(&val);
@@ -619,6 +619,14 @@ pj_status_t pj_turn_config_load(void)
 	else if (pj_strcmp2(&key, "dscp_tcp") == 0) {
 	    pcfg->dscp_tcp = pj_strtol(&val);
 	}
+
+	else if (pj_strcmp2(&key, "no-udp") == 0) {
+	    pcfg->no_udp = PJ_TRUE;
+	}
+
+	else if (pj_strcmp2(&key, "no-tcp") == 0) {
+	    pcfg->no_tcp = PJ_TRUE;
+	}
     }
 
     pj_scan_fini(scanner);
@@ -637,6 +645,8 @@ void pj_turn_config_print(void)
     printf("\trelay-threads: %u\n", pcfg->relay_threads);
     printf("\tmin-port: %u\n", pcfg->min_port);
     printf("\tmax-port: %u\n", pcfg->max_port);
+    printf("\tno-udp: %u\n", pcfg->no_udp);
+    printf("\tno-tcp: %u\n", pcfg->no_tcp);
     printf("\ttos: %d(0x%x) %d(0x%x)\n", pcfg->dscp_udp, pcfg->dscp_udp << 2,
 	   pcfg->dscp_tcp, pcfg->dscp_tcp << 2);
     printf("\tusers:\n");
