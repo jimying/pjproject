@@ -835,6 +835,7 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
     struct epoll_event events[MAX_EVENTS];
     struct queue queue[MAX_EVENTS];
     pj_timestamp t1, t2;
+    pj_ioqueue_key_t *h;
     
     PJ_CHECK_STACK();
 
@@ -850,7 +851,7 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
     /* Check the closing keys only when there's no activity and when there are
      * pending closing keys.
      */
-    if (count == 0 && !pj_list_empty(&ioqueue->closing_list)) {
+    if (!pj_list_empty(&ioqueue->closing_list)) {
         pj_lock_acquire(ioqueue->lock);
         scan_closing_keys(ioqueue);
         pj_lock_release(ioqueue->lock);
@@ -871,54 +872,36 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
     /* Lock ioqueue. */
     pj_lock_acquire(ioqueue->lock);
 
-    for (event_cnt=0, i=0; i<count; ++i) {
-        pj_ioqueue_key_t *h = (pj_ioqueue_key_t*)(epoll_data_type)
-                                events[i].epoll_data;
+    for (event_cnt = 0, i = 0; i < count; ++i) {
+        int event_type = NO_EVENT;
+        h = (pj_ioqueue_key_t *)events[i].epoll_data;
 
         TRACE_((THIS_FILE, "     event %d: events=%x", i, events[i].events));
+
+        if (IS_CLOSING(h))
+            continue;
 
         /*
          * Check readability.
          */
-        if ((events[i].events & EPOLLIN) && 
-            (key_has_pending_read(h) || key_has_pending_accept(h)) && !IS_CLOSING(h) ) {
-
-#if PJ_IOQUEUE_HAS_SAFE_UNREG
-            increment_counter(h);
-#endif
-            queue[event_cnt].key = h;
-            queue[event_cnt].event_type = READABLE_EVENT;
-            ++event_cnt;
-            continue;
+        if ((events[i].events & EPOLLIN) &&
+            (key_has_pending_read(h) || key_has_pending_accept(h))) {
+            event_type |= READABLE_EVENT;
         }
 
         /*
          * Check for writeability.
          */
-        if ((events[i].events & EPOLLOUT) && key_has_pending_write(h) && !IS_CLOSING(h)) {
-
-#if PJ_IOQUEUE_HAS_SAFE_UNREG
-            increment_counter(h);
-#endif
-            queue[event_cnt].key = h;
-            queue[event_cnt].event_type = WRITEABLE_EVENT;
-            ++event_cnt;
-            continue;
+        if ((events[i].events & EPOLLOUT) && key_has_pending_write(h)) {
+            event_type |= WRITEABLE_EVENT;
         }
 
 #if PJ_HAS_TCP
         /*
          * Check for completion of connect() operation.
          */
-        if ((events[i].events & EPOLLOUT) && (h->connecting) && !IS_CLOSING(h)) {
-
-#if PJ_IOQUEUE_HAS_SAFE_UNREG
-            increment_counter(h);
-#endif
-            queue[event_cnt].key = h;
-            queue[event_cnt].event_type = WRITEABLE_EVENT;
-            ++event_cnt;
-            continue;
+        if ((events[i].events & EPOLLOUT) && (h->connecting)) {
+            event_type |= WRITEABLE_EVENT;
         }
 #endif /* PJ_HAS_TCP */
 
@@ -932,20 +915,24 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
              * read event and the higher layers will handle it.
              */
             if (h->connecting) {
-#if PJ_IOQUEUE_HAS_SAFE_UNREG
-                increment_counter(h);
-#endif
-                queue[event_cnt].key = h;
-                queue[event_cnt].event_type = EXCEPTION_EVENT;
-                ++event_cnt;
+                event_type |= EXCEPTION_EVENT;
             } else if (key_has_pending_read(h) || key_has_pending_accept(h)) {
-#if PJ_IOQUEUE_HAS_SAFE_UNREG
-                increment_counter(h);
-#endif
-                queue[event_cnt].key = h;
-                queue[event_cnt].event_type = READABLE_EVENT;
-                ++event_cnt;
+                event_type |= READABLE_EVENT;
             }
+        }
+
+        /*
+         * Mark event as changed.
+         */
+        if (event_type != NO_EVENT && !IS_CLOSING(h)) {
+            queue[event_cnt].key = h;
+            queue[event_cnt].event_type = event_type;
+            ++event_cnt;
+#if PJ_IOQUEUE_HAS_SAFE_UNREG
+            increment_counter(h);
+#endif
+            if (h->grp_lock)
+                pj_grp_lock_add_ref_dbg(h->grp_lock, "ioqueue", 0);
             continue;
         }
 
@@ -981,10 +968,6 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
         TRACE_WARN((THIS_FILE, "     UNHANDLED event %d: events=0x%x, h=%p",
                     i, events[i].events, h));
     }
-    for (i=0; i<event_cnt; ++i) {
-        if (queue[i].key->grp_lock)
-            pj_grp_lock_add_ref_dbg(queue[i].key->grp_lock, "ioqueue", 0);
-    }
 
     PJ_RACE_ME(5);
 
@@ -995,27 +978,22 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
     processed_cnt = 0;
 
     /* Now process the events. */
-    for (i=0; i<event_cnt; ++i) {
+    for (i = 0; i < event_cnt; ++i) {
+        h = queue[i].key;
+
         /* Just do not exceed PJ_IOQUEUE_MAX_EVENTS_IN_SINGLE_POLL */
         if (processed_cnt < PJ_IOQUEUE_MAX_EVENTS_IN_SINGLE_POLL) {
             pj_bool_t event_done = PJ_FALSE;
-            switch (queue[i].event_type) {
-            case READABLE_EVENT:
-                event_done = ioqueue_dispatch_read_event(ioqueue,queue[i].key);
+            int event_type = queue[i].event_type;
 
-                break;
-            case WRITEABLE_EVENT:
-                event_done = ioqueue_dispatch_write_event(ioqueue,
-                                                          queue[i].key);
-
-                break;
-            case EXCEPTION_EVENT:
-                event_done = ioqueue_dispatch_exception_event(ioqueue,
-                                                              queue[i].key);
-                break;
-            case NO_EVENT:
-                pj_assert(!"Invalid event!");
-                break;
+            if (event_type & READABLE_EVENT) {
+                event_done |= ioqueue_dispatch_read_event(ioqueue, h);
+            }
+            if (event_type & WRITEABLE_EVENT) {
+                event_done |= ioqueue_dispatch_write_event(ioqueue, h);
+            }
+            if (event_type & EXCEPTION_EVENT) {
+                event_done |= ioqueue_dispatch_exception_event(ioqueue, h);
             }
             if (event_done) {
                 ++processed_cnt;
@@ -1034,21 +1012,20 @@ PJ_DEF(int) pj_ioqueue_poll( pj_ioqueue_t *ioqueue, const pj_time_val *timeout)
          * albeit inefficient. We err on the safe side.
          */
         if ((ioqueue->cfg.epoll_flags & PJ_IOQUEUE_EPOLL_ONESHOT) &&
-            (queue[i].key->ev.events & IO_MASK))
+            (h->ev.events & IO_MASK))
         {
-            pj_ioqueue_lock_key(queue[i].key);
-            update_epoll_event_set(ioqueue, queue[i].key,
-                                   queue[i].key->ev.events);
-            pj_ioqueue_unlock_key(queue[i].key);
+            pj_ioqueue_lock_key(h);
+            if (!IS_CLOSING(h))
+                update_epoll_event_set(ioqueue, h, h->ev.events);
+            pj_ioqueue_unlock_key(h);
         }
 
 #if PJ_IOQUEUE_HAS_SAFE_UNREG
-        decrement_counter(queue[i].key);
+        decrement_counter(h);
 #endif
 
-        if (queue[i].key->grp_lock)
-            pj_grp_lock_dec_ref_dbg(queue[i].key->grp_lock,
-                                    "ioqueue", 0);
+        if (h->grp_lock)
+            pj_grp_lock_dec_ref_dbg(h->grp_lock, "ioqueue", 0);
     }
 
     /* Special case:
