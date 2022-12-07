@@ -85,6 +85,17 @@ struct pj_timer_entry;
 typedef void pj_timer_heap_callback(pj_timer_heap_t *timer_heap,
                                     struct pj_timer_entry *entry);
 
+/**
+ * The type of callback function to be called by timer scheduler when a timer
+ * has expired.
+ *
+ * @param timer_heap    The timer heap.
+ * @param entry         Timer entry which timer's has expired.
+ * 
+ * @return  timer delay ms:  >0 reinsert; <=0 remove from heap
+ */
+typedef int pj_timer_heap_callback2(pj_timer_heap_t *timer_heap,
+                                    struct pj_timer_entry *entry);
 
 /**
  * This structure represents an entry to the timer.
@@ -116,6 +127,11 @@ typedef struct pj_timer_entry
      * Callback to be called when the timer expires. 
      */
     pj_timer_heap_callback *cb;
+
+    /** 
+     * Callback to be called when the timer expires. 
+     */
+    pj_timer_heap_callback2 *cb2;
 
     /** 
      * Internal unique timer ID, which is assigned by the timer heap. 
@@ -227,6 +243,27 @@ PJ_DECL(pj_timer_entry*) pj_timer_entry_init( pj_timer_entry *entry,
                                               int id,
                                               void *user_data,
                                               pj_timer_heap_callback *cb );
+/**
+ * Initialize a timer entry. Application should call this function at least
+ * once before scheduling the entry to the timer heap, to properly initialize
+ * the timer entry.
+ *
+ * @param entry     The timer entry to be initialized.
+ * @param id        Arbitrary ID assigned by the user/owner of this entry.
+ *                  Applications can use this ID to distinguish multiple
+ *                  timer entries that share the same callback and user_data.
+ * @param user_data User data to be associated with this entry. 
+ *                  Applications normally will put the instance of object that
+ *                  owns the timer entry in this field.
+ * @param cb        Callback function to be called when the timer elapses.
+ *
+ * @return          The timer entry itself.
+ */
+PJ_DECL(pj_timer_entry*) pj_timer_entry_init2( pj_timer_entry *entry,
+                                               int id,
+                                               void *user_data,
+                                               pj_timer_heap_callback2 *cb );
+
 
 /**
  * Queries whether a timer entry is currently running.

@@ -683,6 +683,26 @@ PJ_DEF(pj_timer_entry*) pj_timer_entry_init( pj_timer_entry *entry,
     entry->id = id;
     entry->user_data = user_data;
     entry->cb = cb;
+    entry->cb2 = NULL;
+#if !PJ_TIMER_USE_COPY
+    entry->_grp_lock = NULL;
+#endif
+
+    return entry;
+}
+
+PJ_DEF(pj_timer_entry*) pj_timer_entry_init2( pj_timer_entry *entry,
+                                              int id,
+                                              void *user_data,
+                                              pj_timer_heap_callback2 *cb )
+{
+    pj_assert(entry && cb);
+
+    entry->_timer_id = -1;
+    entry->id = id;
+    entry->user_data = user_data;
+    entry->cb = NULL;
+    entry->cb2 = cb;
 #if !PJ_TIMER_USE_COPY
     entry->_grp_lock = NULL;
 #endif
@@ -717,7 +737,7 @@ static pj_status_t schedule_w_grp_lock(pj_timer_heap_t *ht,
     pj_time_val expires;
 
     PJ_ASSERT_RETURN(ht && entry && delay, PJ_EINVAL);
-    PJ_ASSERT_RETURN(entry->cb != NULL, PJ_EINVAL);
+    PJ_ASSERT_RETURN((entry->cb || entry->cb2), PJ_EINVAL);
 
     /* Prevent same entry from being scheduled more than once */
     //PJ_ASSERT_RETURN(entry->_timer_id < 1, PJ_EINVALIDOP);
@@ -879,12 +899,14 @@ PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht,
         ///pj_timer_id_t node_timer_id = pop_freelist(ht);
         pj_grp_lock_t *grp_lock;
         pj_bool_t valid = PJ_TRUE;
+        int delayms = 0;
 
         ++count;
 
         grp_lock = node->_grp_lock;
         node->_grp_lock = NULL;
         if (GET_FIELD(node, cb) != entry->cb ||
+            GET_FIELD(node, cb2) != entry->cb2 ||
             GET_FIELD(node, user_data) != entry->user_data)
         {
             valid = PJ_FALSE;
@@ -910,13 +932,30 @@ PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht,
 
         if (valid && entry->cb)
             (*entry->cb)(ht, entry);
+        else if (valid && entry->cb2) {
+            delayms = (*entry->cb2)(ht, entry);
+        }
 
-        if (valid && grp_lock)
+        if (valid && grp_lock && delayms > 0)
             pj_grp_lock_dec_ref(grp_lock);
 
         lock_timer_heap(ht);
         /* Now, the timer is really free for re-use. */
         ///push_freelist(ht, node_timer_id);
+
+        if (delayms > 0) {
+            /* reinsert this timer into heap */
+            pj_time_val delay = {delayms / 1000, delayms % 1000};
+            pj_time_val expires = now;
+            pj_status_t status;
+
+            PJ_TIME_VAL_ADD(expires, delay);
+            status = schedule_entry(ht, entry, &expires);
+            if (status == PJ_SUCCESS) {
+                pj_timer_entry_dup *timer_copy = GET_TIMER(ht, entry);
+                timer_copy->_grp_lock = grp_lock;
+            }
+        }
 
         if (ht->cur_size) {
 #if PJ_TIMER_USE_LINKED_LIST
