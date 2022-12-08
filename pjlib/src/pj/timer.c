@@ -864,7 +864,7 @@ PJ_DEF(int) pj_timer_heap_cancel_if_active(pj_timer_heap_t *ht,
 PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht, 
                                      pj_time_val *next_delay )
 {
-    pj_time_val now;
+    pj_time_val now, orig_now;
     pj_time_val min_time_node = {0,0};
     unsigned count;
     pj_timer_id_t slot = 0;
@@ -880,6 +880,8 @@ PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht,
 
     count = 0;
     pj_gettickcount(&now);
+    /* Save original timestamp */
+    orig_now = now;
 
     if (ht->cur_size) {
 #if PJ_TIMER_USE_LINKED_LIST
@@ -936,7 +938,7 @@ PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht,
             delayms = (*entry->cb2)(ht, entry);
         }
 
-        if (valid && grp_lock && delayms > 0)
+        if (valid && grp_lock && delayms <= 0)
             pj_grp_lock_dec_ref(grp_lock);
 
         lock_timer_heap(ht);
@@ -946,7 +948,7 @@ PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht,
         if (delayms > 0) {
             /* reinsert this timer into heap */
             pj_time_val delay = {delayms / 1000, delayms % 1000};
-            pj_time_val expires = now;
+            pj_time_val expires = orig_now;
             pj_status_t status;
 
             PJ_TIME_VAL_ADD(expires, delay);
@@ -963,9 +965,13 @@ PJ_DEF(unsigned) pj_timer_heap_poll( pj_timer_heap_t *ht,
 #endif
             min_time_node = ht->heap[slot]->_timer_value;
         }
+
+        /* Update now */
+        pj_gettickcount(&now);
     }
     if (ht->cur_size && next_delay) {
         *next_delay = ht->heap[0]->_timer_value;
+        pj_gettickcount(&now);
         PJ_TIME_VAL_SUB(*next_delay, now);
         if (next_delay->sec < 0 || next_delay->msec < 0)
             next_delay->sec = next_delay->msec = 0;
