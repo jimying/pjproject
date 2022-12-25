@@ -998,9 +998,9 @@ on_error:
 
 #if defined(PJ_SOCK_HAS_SOCKETPAIR) && PJ_SOCK_HAS_SOCKETPAIR != 0
 PJ_DEF(pj_status_t) pj_sock_socketpair(int family,
-				   int type,
-				   int protocol,
-				   pj_sock_t sv[2])
+				       int type,
+				       int protocol,
+				       pj_sock_t sv[2])
 {
     int status;
     int tmp_sv[2];
@@ -1021,9 +1021,9 @@ PJ_DEF(pj_status_t) pj_sock_socketpair(int family,
 }
 #else
 PJ_DEF(pj_status_t) pj_sock_socketpair(int family,
-				   int type,
-				   int protocol,
-				   pj_sock_t sv[2])
+				       int type,
+				       int protocol,
+				       pj_sock_t sv[2])
 {
     PJ_CHECK_STACK();
     return socketpair_s(family, type, protocol, sv);

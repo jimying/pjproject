@@ -19,6 +19,10 @@ AllowShortEnumsOnASingleLine: false
 # Function params
 AllowAllParametersOfDeclarationOnNextLine: false
 BinPackParameters: false
+PenaltyReturnTypeOnItsOwnLine: 1000
+
+ColumnLimit: 80
+TypenameMacros: ['PJ_DECL', 'PJ_DEF', 'PJ_INLINE']
 
 ...
 

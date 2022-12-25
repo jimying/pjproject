@@ -1543,9 +1543,9 @@ PJ_DECL(char *) pj_addr_str_print( const pj_str_t *host_str, int port,
  *
  */
 PJ_DECL(pj_status_t) pj_sock_socketpair(int family,
-				    int type,
-				    int protocol,
-				    pj_sock_t sv[2]);
+					int type,
+					int protocol,
+					pj_sock_t sv[2]);
 
 /**
  * @}
