@@ -37,7 +37,6 @@
 
 PJ_BEGIN_DECL
 
-
 /**
  * Start of error code relative to PJ_ERRNO_START_USER.
  */
@@ -570,7 +569,7 @@ PJ_BEGIN_DECL
  */
 #define PJMEDIA_ESNDINSAMPLEFMT     (PJMEDIA_ERRNO_START+203)    /* 220203 */
 
-
+// clang-format off
 #if defined(PJMEDIA_HAS_SRTP) && (PJMEDIA_HAS_SRTP != 0)
 /************************************************************
  * SRTP TRANSPORT ERRORS
@@ -663,6 +662,7 @@ PJ_BEGIN_DECL
 
 #endif /* PJMEDIA_HAS_SRTP */
 
+// clang-format on
 
 /**
  * Get error message for the specified error code. Note that this

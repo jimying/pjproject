@@ -217,7 +217,6 @@
 #define PJNATH_ETURNINTP            (PJNATH_ERRNO_START+120) /* 370120 */
 
 
-
 /**
  * @}
  */

@@ -1,0 +1,84 @@
+---
+BasedOnStyle: Google
+TabWidth: 4
+IndentWidth: 4
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: true
+BinPackParameters: false
+BitFieldColonSpacing: None
+IndentCaseLabels: false
+IndentCaseBlocks: true
+MaxEmptyLinesToKeep: 1
+PointerAlignment: Right
+PenaltyBreakAssignment: 30
+PenaltyReturnTypeOnItsOwnLine: 110
+ReflowComments: true
+SortIncludes: false
+
+# brace break
+BraceWrapping:
+  AfterCaseLabel:  true
+  AfterClass:      false
+  AfterControlStatement: Never
+  AfterEnum:       false
+  AfterFunction:   true
+  AfterNamespace:  true
+  AfterObjCDeclaration: false
+  AfterStruct:     false
+  AfterUnion:      false
+  AfterExternBlock: false
+  BeforeCatch:     false
+  BeforeElse:      false
+  BeforeLambdaBody: false
+  BeforeWhile:     false
+  IndentBraces:    false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+BreakBeforeBraces: Custom
+
+# single line
+AllowShortEnumsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# macros
+AlignConsecutiveMacros: AcrossEmptyLinesAndComments
+AlignEscapedNewlines: DontAlign
+IndentPPDirectives: AfterHash
+PPIndentWidth: 2
+TypenameMacros: ['PJ_DECL', 'PJ_DEF', 'PJ_INLINE', 'PJ_IDEF', 'PJ_IDECL', 'PJ_DECL_NO_RETURN', 'PJ_IDECL_NO_RETURN', 'PJ_DECL_DATA', 'PJ_DEF_DATA']
+
+
+#AlignTrailingComments: true
+#only clang-format>=16
+AlignTrailingComments:
+  Kind:            Always
+  OverEmptyLines:  10
+
+---
+Language: Cpp
+ColumnLimit: 80
+
+---
+Language: ObjC
+ObjCBlockIndentWidth: 4
+ColumnLimit: 80
+
+---
+Language: Java
+ColumnLimit: 120
+
+---
+Language: CSharp
+BreakBeforeBraces: Allman
+ColumnLimit: 120
+
+...
+

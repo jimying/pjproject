@@ -1428,9 +1428,11 @@ PJ_BEGIN_DECL
  * 0xMMIIRR00, where MM: major number, II: minor number, RR: revision
  * number, 00: always zero for now.
  */
+// clang-format off
 #define PJ_VERSION_NUM  ((PJ_VERSION_NUM_MAJOR << 24) | \
                          (PJ_VERSION_NUM_MINOR << 16) | \
                          (PJ_VERSION_NUM_REV << 8))
+// clang-format on
 
 /**
  * PJLIB version string constant. @see pj_get_version()

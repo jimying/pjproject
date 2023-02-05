@@ -1250,9 +1250,11 @@
  * of the packet is initializer to pj_str_t structure. Note that
  * the content may contain NULL character.
  */
+// clang-format off
 #ifndef PJMEDIA_STREAM_KA_USER_PKT
-#   define PJMEDIA_STREAM_KA_USER_PKT   { "\r\n", 2 }
+#  define PJMEDIA_STREAM_KA_USER_PKT   { "\r\n", 2 }
 #endif
+// clang-format on
 
 
 /**

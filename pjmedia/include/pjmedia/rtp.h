@@ -53,8 +53,8 @@ PJ_BEGIN_DECL
  *
  * \section P1 How to Use the RTP Module
  * 
- * First application must call #pjmedia_rtp_session_init() to initialize the RTP 
- * session.
+ * First application must call #pjmedia_rtp_session_init() to initialize the
+ * RTP session.
  *
  * When application wants to send RTP packet, it needs to call 
  * #pjmedia_rtp_encode_rtp() to build the RTP header. Note that this WILL NOT

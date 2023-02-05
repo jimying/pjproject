@@ -16,6 +16,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA 
  */
 
+// clang-format off
 
 /**
 
@@ -412,3 +413,5 @@ More protocols will be implemented in the future.
 Go back to \ref index.
 
  */
+
+// clang-format on
