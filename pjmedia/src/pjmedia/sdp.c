@@ -790,6 +790,34 @@ static int print_media_desc(const pjmedia_sdp_media *m, char *buf, pj_size_t len
         p += printed;
     }
 
+#if PJMEDIA_SDP_SUPPORT_GB28181
+    /* print (y=) */
+    if (m->y.slen > 0) {
+        if (end - p < 4 + m->y.slen) {
+            return -1;
+        }
+        *p++ = 'y';
+        *p++ = '=';
+        pj_memcpy(p, m->y.ptr, m->y.slen);
+        p += m->y.slen;
+        *p++ = '\r';
+        *p++ = '\n';
+    }
+
+    /* print (f=) */
+    if (m->f.slen > 0) {
+        if (end - p < 4 + m->f.slen) {
+            return -1;
+        }
+        *p++ = 'f';
+        *p++ = '=';
+        pj_memcpy(p, m->f.ptr, m->f.slen);
+        p += m->f.slen;
+        *p++ = '\r';
+        *p++ = '\n';
+    }
+#endif
+
     return (int)(p-buf);
 }
 
@@ -839,6 +867,11 @@ PJ_DEF(pjmedia_sdp_media*) pjmedia_sdp_media_clone(
         m->attr[i] = pjmedia_sdp_attr_clone (pool, rhs->attr[i]);
         PJ_ASSERT_RETURN(m->attr[i] != NULL, NULL);
     }
+
+#if PJMEDIA_SDP_SUPPORT_GB28181
+    pj_strdup(pool, &m->y, &rhs->y);
+    pj_strdup(pool, &m->f, &rhs->f);
+#endif
 
     return m;
 }
@@ -941,6 +974,21 @@ static int print_session(const pjmedia_sdp_session *ses,
     p += ses->name.slen;
     *p++ = '\r';
     *p++ = '\n';
+
+#if PJMEDIA_SDP_SUPPORT_GB28181
+    /* Session (u=) line */
+    if (ses->u.slen > 0) {
+        if (end - p < 4 + ses->u.slen) {
+            return -1;
+        }
+        *p++ = 'u';
+        *p++ = '=';
+        pj_memcpy(p, ses->u.ptr, ses->u.slen);
+        p += ses->u.slen;
+        *p++ = '\r';
+        *p++ = '\n';
+    }
+#endif
 
     /* Connection line (c=) if exist. */
     if (ses->conn) {
@@ -1513,6 +1561,21 @@ PJ_DEF(pj_status_t) pjmedia_sdp_parse( pj_pool_t *pool,
                                           "info, info is ignored"));
                     }
                     break;
+#if PJMEDIA_SDP_SUPPORT_GB28181
+                case 'u':
+                    parse_generic_line(&scanner, &session->u, &ctx);
+                    break;
+                case 'y':
+                    if (media) {
+                        parse_generic_line(&scanner, &media->y, &ctx);
+                    }
+                    break;
+                case 'f':
+                    if (media) {
+                        parse_generic_line(&scanner, &media->f, &ctx);
+                    }
+                    break;
+#endif
                 default:
                     if (cur_name >= 'a' && cur_name <= 'z')
                         parse_generic_line(&scanner, &dummy, &ctx);
@@ -1581,6 +1644,11 @@ PJ_DEF(pjmedia_sdp_session*) pjmedia_sdp_session_clone( pj_pool_t *pool,
 
     /* Clone subject line. */
     pj_strdup(pool, &sess->name, &rhs->name);
+
+#if PJMEDIA_SDP_SUPPORT_GB28181
+    /* Clone (u=) */
+    pj_strdup(pool, &sess->u, &rhs->u);
+#endif
 
     /* Clone connection line */
     if (rhs->conn) {
