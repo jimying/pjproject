@@ -42,6 +42,13 @@
 PJ_BEGIN_DECL
 
 /**
+ * The PJMEDIA_SDP_SUPPORT_GB28181 macro defines if support GB28181
+ */
+#ifndef PJMEDIA_SDP_SUPPORT_GB28181
+#define PJMEDIA_SDP_SUPPORT_GB28181 1
+#endif
+
+/**
  * The PJMEDIA_MAX_SDP_FMT macro defines maximum format in a media line.
  */
 #ifndef PJMEDIA_MAX_SDP_FMT
@@ -478,6 +485,10 @@ struct pjmedia_sdp_media
     unsigned            attr_count;     /**< Number of attributes.          */
     pjmedia_sdp_attr   *attr[PJMEDIA_MAX_SDP_ATTR];   /**< Attributes.      */
 
+#if PJMEDIA_SDP_SUPPORT_GB28181
+    pj_str_t y; /**< y=SSRC  */
+    pj_str_t f; /**< f=stream desc */
+#endif
 };
 
 
@@ -688,6 +699,9 @@ struct pjmedia_sdp_session
         pj_str_t    addr;           /**< The address.                   */
     } origin;
 
+#if PJMEDIA_SDP_SUPPORT_GB28181
+    pj_str_t u; /**< URI of description (u=)  */
+#endif
     pj_str_t           name;        /**< Subject line (s=)              */
     pjmedia_sdp_conn  *conn;        /**< Connection line (c=)           */
     unsigned           bandw_count; /**< Number of bandwidth info (b=)  */
