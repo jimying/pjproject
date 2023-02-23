@@ -28,6 +28,7 @@
  */
 
 #define PENDING_RETRY   2
+#include "ioqueue_common_wakeup.c"
 
 PJ_DEF(void) pj_ioqueue_cfg_default(pj_ioqueue_cfg *cfg)
 {
@@ -36,14 +37,29 @@ PJ_DEF(void) pj_ioqueue_cfg_default(pj_ioqueue_cfg *cfg)
     cfg->default_concurrency = PJ_IOQUEUE_DEFAULT_ALLOW_CONCURRENCY;
 }
 
-static void ioqueue_init( pj_ioqueue_t *ioqueue )
+static void ioqueue_init( pj_ioqueue_t *ioqueue, pj_pool_t *pool)
 {
+    ioqueue->pool = pool;
     ioqueue->lock = NULL;
     ioqueue->auto_delete_lock = 0;
+    ioqueue->cfg.default_concurrency = PJ_IOQUEUE_DEFAULT_ALLOW_CONCURRENCY;
+}
+
+static void ioqueue_init_done( pj_ioqueue_t *ioqueue)
+{
+#if PJ_IOQUEUE_HAS_WAKEUP
+    /* wakeup init */
+    ioqueue_wakeup_init(ioqueue);
+#endif
 }
 
 static pj_status_t ioqueue_destroy(pj_ioqueue_t *ioqueue)
 {
+#if PJ_IOQUEUE_HAS_WAKEUP
+    /* wakeup deinit */
+    ioqueue_wakeup_deinit(ioqueue);
+#endif
+
     if (ioqueue->auto_delete_lock && ioqueue->lock ) {
         pj_lock_release(ioqueue->lock);
         return pj_lock_destroy(ioqueue->lock);

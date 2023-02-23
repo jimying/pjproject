@@ -294,7 +294,7 @@ PJ_DEF(pj_status_t) pj_ioqueue_create2(pj_pool_t *pool,
 
     ioqueue = pj_pool_alloc(pool, sizeof(pj_ioqueue_t));
 
-    ioqueue_init(ioqueue);
+    ioqueue_init(ioqueue, pool);
 
     if (cfg)
         pj_memcpy(&ioqueue->cfg, cfg, sizeof(*cfg));
@@ -390,6 +390,9 @@ PJ_DEF(pj_status_t) pj_ioqueue_create2(pj_pool_t *pool,
 
     PJ_LOG(4, ("pjlib", "epoll I/O Queue created (flags:0x%x, ptr=%p)",
                ioqueue->cfg.epoll_flags, ioqueue));
+
+    /* Do some stuffs after ioqueue init */
+    ioqueue_init_done(ioqueue);
 
     *p_ioqueue = ioqueue;
     return PJ_SUCCESS;

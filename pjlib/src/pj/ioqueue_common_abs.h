@@ -117,11 +117,21 @@ union operation_key
     UNREG_FIELDS
 
 
+#if PJ_IOQUEUE_HAS_WAKEUP
 #define DECLARE_COMMON_IOQUEUE                      \
+    pj_sock_t           wakeup_fd[2];               \
+    char                wakeup_buf[8];              \
+    pj_pool_t          *pool;                       \
     pj_lock_t          *lock;                       \
     pj_bool_t           auto_delete_lock;           \
     pj_ioqueue_cfg      cfg;
-
+#else
+#define DECLARE_COMMON_IOQUEUE                      \
+    pj_pool_t          *pool;                       \
+    pj_lock_t          *lock;                       \
+    pj_bool_t           auto_delete_lock;           \
+    pj_ioqueue_cfg      cfg;
+#endif
 
 enum ioqueue_event_type
 {
