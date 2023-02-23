@@ -2494,8 +2494,14 @@ PJ_DEF(pj_status_t) pjmedia_stream_create( pjmedia_endpt *endpt,
 
     //No longer there in 2.0
     //pj_strdup(pool, &stream->port.info.encoding_name, &info->fmt.encoding_name);
-    afd->clock_rate = info->fmt.clock_rate;
-    afd->channel_count = info->fmt.channel_cnt;
+    if (info->param) {
+        afd->clock_rate = info->param->info.clock_rate;
+        afd->channel_count = info->param->info.channel_cnt;
+    }
+    else {
+        afd->clock_rate = info->fmt.clock_rate;
+        afd->channel_count = info->fmt.channel_cnt;
+    }
     stream->port.port_data.pdata = stream;
 
     /* Init stream: */
@@ -2582,8 +2588,8 @@ PJ_DEF(pj_status_t) pjmedia_stream_create( pjmedia_endpt *endpt,
      * it's negotiated in the SDP.
      */
     if (!pj_stricmp2(&info->fmt.encoding_name, "opus")) {
-        stream->codec_param.info.clock_rate = info->fmt.clock_rate;
-        stream->codec_param.info.channel_cnt = info->fmt.channel_cnt;
+        stream->codec_param.info.clock_rate = afd->clock_rate;
+        stream->codec_param.info.channel_cnt = afd->channel_count;
 
         /* Allocate decoding buffer as Opus can send a packet duration of
          * up to 120 ms.
@@ -2894,7 +2900,9 @@ PJ_DEF(pj_status_t) pjmedia_stream_create( pjmedia_endpt *endpt,
         pj_sockaddr_cp(&att_param.rem_rtcp, &info->rem_rtcp);
     }
     att_param.addr_len = pj_sockaddr_get_len(&info->rem_addr);
-    att_param.rtp_cb2 = &on_rx_rtp;
+    if (info->dir & PJMEDIA_DIR_DECODING) {
+        att_param.rtp_cb2 = &on_rx_rtp;
+    }
     att_param.rtcp_cb = &on_rx_rtcp;
 
     /* Only attach transport when stream is ready. */
