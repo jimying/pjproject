@@ -32,6 +32,7 @@ struct udp_listener
     pj_ioqueue_key_t        *key;
     unsigned                 read_cnt;
     struct read_op          **read_op;  /* Array of read_op's   */
+    pj_ioqueue_op_key_t      send_op;
 
     pj_turn_transport        tp;        /* Transport instance */
 };
@@ -70,6 +71,7 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_udp( pj_turn_srv *srv,
     pj_ioqueue_callback ioqueue_cb;
     unsigned i;
     pj_status_t status;
+    const pj_turn_config *pcfg = pj_turn_get_config();
 
     /* Create structure */
     pool = pj_pool_create(srv->core.pf, "udp%p", 1000, 1000, NULL);
@@ -95,16 +97,28 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_udp( pj_turn_srv *srv,
     if (status != PJ_SUCCESS)
         goto on_error;
 
+    /* set sock buffer size */
+    pj_util_set_sock_buf_size(udp->base.sock, PJ_TURN_UDP_SOCK_BUF_SIZE);
+
+    /* set tos */
+    if (pcfg->dscp_udp > 0)
+        pj_turn_set_tos(udp->base.sock, pcfg->dscp_udp);
+
     /* Init bind address */
     status = pj_sockaddr_init(af, &udp->base.addr, bound_addr, 
                               (pj_uint16_t)port);
     if (status != PJ_SUCCESS) 
         goto on_error;
-    
+
     /* Create info */
     pj_ansi_strxcpy(udp->base.info, "UDP:", sizeof(udp->base.info));
     pj_sockaddr_print(&udp->base.addr, udp->base.info+4, 
                       sizeof(udp->base.info)-4, 3);
+
+    /* set bound listen ip */
+    if (bound_addr) {
+        pj_strdup_with_null(pool, &udp->base.listen_ip, bound_addr);
+    }
 
     /* Bind socket */
     status = pj_sock_bind(udp->base.sock, &udp->base.addr, 
@@ -130,7 +144,7 @@ PJ_DEF(pj_status_t) pj_turn_listener_create_udp( pj_turn_srv *srv,
         udp->read_op[i] = PJ_POOL_ZALLOC_T(pool, struct read_op);
         udp->read_op[i]->pkt.pool = rpool;
 
-        on_read_complete(udp->key, &udp->read_op[i]->op_key, 0);
+        on_read_complete(udp->key, &udp->read_op[i]->op_key, -PJ_EPENDING);
     }
 
     /* Done */
@@ -163,12 +177,15 @@ static pj_status_t udp_destroy(pj_turn_listener *listener)
         udp->base.sock = PJ_INVALID_SOCKET;
     }
 
+    if (udp->read_op) {
     for (i=0; i<udp->read_cnt; ++i) {
         if (udp->read_op[i]->pkt.pool) {
             pj_pool_t *rpool = udp->read_op[i]->pkt.pool;
             udp->read_op[i]->pkt.pool = NULL;
             pj_pool_release(rpool);
         }
+    }
+    udp->read_op = NULL;
     }
 
     if (udp->base.pool) {
@@ -194,9 +211,20 @@ static pj_status_t udp_sendto(pj_turn_transport *tp,
                               int addr_len)
 {
     pj_ssize_t len = size;
-    return pj_sock_sendto(tp->listener->sock, packet, &len, flag, addr, addr_len);
-}
+    struct udp_listener *udp = (struct udp_listener *)tp->listener;
+    pj_status_t status = pj_ioqueue_sendto(udp->key, &udp->send_op, packet,
+                                           &len, flag, addr, addr_len);
 
+    if (status != PJ_SUCCESS) {
+        if (status == PJ_EPENDING) {
+            PJ_LOG(4, (udp->base.obj_name, "sendto pending"));
+        } else {
+            PJ_PERROR(2, (udp->base.obj_name, status, "sendto error(%d)", status));
+        }
+    }
+
+    return status;
+}
 
 static void udp_add_ref(pj_turn_transport *tp,
                         pj_turn_allocation *alloc)
@@ -225,24 +253,26 @@ static void on_read_complete(pj_ioqueue_key_t *key,
     struct udp_listener *udp;
     struct read_op *read_op = (struct read_op*) op_key;
     pj_status_t status;
+    int flags = PJ_TURN_SOCK_READ_FLAGS;
 
     udp = (struct udp_listener*) pj_ioqueue_get_user_data(key);
 
     do {
-        pj_pool_t *rpool;
-
         /* Report to server */
         if (bytes_read > 0) {
             read_op->pkt.len = bytes_read;
-            pj_gettimeofday(&read_op->pkt.rx_time);
+            // pj_gettimeofday(&read_op->pkt.rx_time);
 
             pj_turn_srv_on_rx_pkt(udp->base.server, &read_op->pkt);
         }
 
+        else if (bytes_read != -PJ_EPENDING &&
+                 bytes_read != -PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
+            return;
+        }
+
         /* Reset pool */
-        rpool = read_op->pkt.pool;
-        pj_pool_reset(rpool);
-        read_op->pkt.pool = rpool;
+        // pj_pool_reset(read_op->pkt.pool);
         read_op->pkt.transport = &udp->tp;
         read_op->pkt.src.tp_type = udp->base.tp_type;
 
@@ -251,15 +281,13 @@ static void on_read_complete(pj_ioqueue_key_t *key,
         read_op->pkt.src_addr_len = sizeof(read_op->pkt.src.clt_addr);
         pj_bzero(&read_op->pkt.src.clt_addr, sizeof(read_op->pkt.src.clt_addr));
 
-        status = pj_ioqueue_recvfrom(udp->key, op_key,
-                                     read_op->pkt.pkt, &bytes_read, 0,
-                                     &read_op->pkt.src.clt_addr, 
+        status = pj_ioqueue_recvfrom(udp->key, op_key, read_op->pkt.pkt,
+                                     &bytes_read, flags, &read_op->pkt.src.clt_addr,
                                      &read_op->pkt.src_addr_len);
 
         if (status != PJ_EPENDING && status != PJ_SUCCESS)
             bytes_read = -status;
 
-    } while (status != PJ_EPENDING && status != PJ_ECANCELLED &&
-             status != PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL));
+    } while (status != PJ_EPENDING && status != PJ_ECANCELLED);
 }
 

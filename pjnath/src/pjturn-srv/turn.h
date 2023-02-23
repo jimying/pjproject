@@ -82,6 +82,9 @@ struct pj_turn_relay_res
         /** Read operation key. */
         pj_ioqueue_op_key_t read_key;
 
+        /** Write operation key. */
+        pj_ioqueue_op_key_t write_key;
+
         /** The incoming packet buffer */
         char                rx_pkt[PJ_TURN_MAX_PKT_LEN];
 
@@ -252,6 +255,7 @@ struct pj_turn_listener
 
     /** Bound address of this listener. */
     pj_sockaddr         addr;
+    pj_str_t                listen_ip;
 
     /** Socket. */
     pj_sock_t           sock;
@@ -410,8 +414,10 @@ struct pj_turn_srv
         /** Number of worker threads. */
         unsigned        thread_cnt;
 
+#if PJ_HAS_THREADS
         /** Array of worker threads. */
         pj_thread_t     **thread;
+#endif
 
         /** Thread quit signal */
         pj_bool_t       quit;
@@ -478,6 +484,19 @@ PJ_DECL(pj_status_t) pj_turn_srv_create(pj_pool_factory *pf,
  */
 PJ_DECL(pj_status_t) pj_turn_srv_destroy(pj_turn_srv *srv);
 
+
+/**
+ * Server stop
+ */
+PJ_DECL(pj_status_t) pj_turn_srv_stop(pj_turn_srv *srv);
+
+
+/**
+ * Sever handle events
+ */
+PJ_DECL(pj_status_t) pj_turn_srv_handle_events(pj_turn_srv *srv);
+
+
 /** 
  * Add listener.
  */
@@ -502,6 +521,128 @@ PJ_DECL(pj_status_t) pj_turn_srv_unregister_allocation(pj_turn_srv *srv,
 PJ_DECL(void) pj_turn_srv_on_rx_pkt(pj_turn_srv *srv, 
                                     pj_turn_pkt *pkt);
 
+/****************************************************************************/
+/**
+ * This is turn socket recv/recvfrom read flags
+ */
+#ifndef PJ_TURN_SOCK_READ_FLAGS
+#define PJ_TURN_SOCK_READ_FLAGS         0
+#endif
 
-#endif  /* __PJ_TURN_SRV_TURN_H__ */
+/****************************************************************************/
+#ifndef PJ_TURN_UDP_SOCK_BUF_SIZE
+#define PJ_TURN_UDP_SOCK_BUF_SIZE            0
+#endif
+
+#ifndef PJ_TURN_TCP_SOCK_BUF_SIZE
+#define PJ_TURN_TCP_SOCK_BUF_SIZE            0
+#endif
+
+/**
+ * Set socket send/recv buffer size
+ *
+ * The final value depends on the system network configuration
+ *
+ * 'sysctl' cmd configure udp/tcp send/recv buffer size:
+ * Linux:
+ *      net.core.rmem_max=1048576
+ *      net.core.rmem_default=1048576
+ *      net.core.wmem_max=1048576
+ *      net.core.wmem_default=1048576
+ *      net.ipv4.tcp_rmem = 4096    10485760    26214400
+ *      net.ipv4.tcp_wmem = 4096    10485760    26214400
+ *
+ * BSD:
+ *      net.bpf.maxbufsize=10485760
+ *      net.bpf.bufsize=10485760
+ *      net.inet.udp.sendspace=1048576
+ *      net.inet.udp.recvspace=1048576
+ *
+ */
+PJ_INLINE(pj_status_t) pj_util_set_sock_buf_size(pj_sock_t sock, int size)
+{
+    pj_status_t status = 0;
+    unsigned sobuf_size;
+
+    if (sock <= 0)
+        return PJ_EINVAL;
+    if (size <= 0) {
+        status = PJ_EIGNORED;
+        goto return_line;
+    }
+
+    sobuf_size = size;
+    status |= pj_sock_setsockopt_sobuf(sock, pj_SO_RCVBUF(),
+            PJ_TRUE, &sobuf_size);
+
+    sobuf_size = size;
+    status |= pj_sock_setsockopt_sobuf(sock, pj_SO_SNDBUF(),
+            PJ_TRUE, &sobuf_size);
+
+return_line:
+#if PJ_DEBUG
+    {
+        int sz_rx = 0, sz_tx = 0;
+        int sz_len = sizeof(int);
+        pj_sock_getsockopt(sock, pj_SOL_SOCKET(), pj_SO_RCVBUF(), &sz_rx,
+                           &sz_len);
+        pj_sock_getsockopt(sock, pj_SOL_SOCKET(), pj_SO_SNDBUF(), &sz_tx,
+                           &sz_len);
+        PJ_LOG(4, ("set_sock_buf_size", "size :%d,  rx:%d, tx:%d", size, sz_rx,
+                   sz_tx));
+    }
+#endif
+    return status;
+}
+
+/**
+ *  Disable tcp timewait
+ */
+PJ_INLINE(void) pj_util_disable_tcp_timewait(pj_sock_t sock)
+{
+    struct linger so_linger;
+    so_linger.l_onoff = 1;
+    so_linger.l_linger = 0;
+    pj_sock_setsockopt(sock, SOL_SOCKET, SO_LINGER, &so_linger,
+                       sizeof(so_linger));
+}
+
+/****************************************************************************/
+#ifndef PJ_TURN_MIN_PORT
+#define PJ_TURN_MIN_PORT 50000
+#endif
+
+#ifndef PJ_TURN_MAX_PORT
+#define PJ_TURN_MAX_PORT 62000
+#endif
+
+#ifndef PJ_TURN_CONFIG_FILE
+#define PJ_TURN_CONFIG_FILE "./turnserver.conf"
+#endif
+
+typedef struct {
+    pj_str_t usr;
+    pj_str_t pwd;
+} pj_turn_user_acc;
+
+typedef struct {
+    pj_pool_t *pool;
+
+    pj_uint16_t listening_port; // listening-port
+    pj_uint16_t relay_threads;  // relay-threads
+    pj_uint16_t min_port;       // min-port
+    pj_uint16_t max_port;       // max-port
+    pj_str_t realm;             // realm
+    pj_turn_user_acc users[8];  // users
+    pj_uint32_t user_cnt;
+    int dscp_udp; // UDP: dscp value
+    int dscp_tcp; // TCP: dscp value
+    pj_bool_t no_udp; // no-udp
+    pj_bool_t no_tcp; // no-tcp
+} pj_turn_config;
+
+const pj_turn_config *pj_turn_get_config(void);
+pj_status_t pj_turn_set_tos(pj_sock_t sock, int dscp);
+
+#endif        /* __PJ_TURN_SRV_TURN_H__ */
 

@@ -34,6 +34,11 @@ PJ_DECL(pj_status_t) pj_turn_auth_init(const char *realm);
 PJ_DECL(void) pj_turn_auth_dinit(void);
 
 /**
+ * Refresh TURN authentication subsystem.
+ */
+PJ_DECL(void) pj_turn_auth_refresh(void);
+
+/**
  * This function is called by pj_stun_verify_credential() when
  * server needs to challenge the request with 401 response.
  *

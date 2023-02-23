@@ -30,13 +30,13 @@ enum {
 };
 
 #define DESTROY_DELAY       {0, 500}
-#define PEER_TABLE_SIZE     32
+#define PEER_TABLE_SIZE     255
 
 #define MAX_CLIENT_BANDWIDTH    128  /* In Kbps */
 #define DEFA_CLIENT_BANDWIDTH   64
 
 #define MIN_LIFETIME            30
-#define MAX_LIFETIME            600
+#define MAX_LIFETIME            300
 #define DEF_LIFETIME            300
 
 
@@ -54,6 +54,7 @@ typedef struct alloc_request
 
 
 /* Prototypes */
+static void alloc_shutdown(pj_turn_allocation *alloc);
 static void destroy_allocation(pj_turn_allocation *alloc);
 static pj_status_t create_relay(pj_turn_srv *srv,
                                 pj_turn_allocation *alloc,
@@ -61,6 +62,12 @@ static pj_status_t create_relay(pj_turn_srv *srv,
                                 const alloc_request *req,
                                 pj_turn_relay_res *relay);
 static void destroy_relay(pj_turn_relay_res *relay);
+static pj_status_t relay_to_peer(pj_turn_relay_res *relay,
+                                 const void *data,
+                                 pj_ssize_t *len,
+                                 pj_uint32_t flag,
+                                 const pj_sockaddr_t *addr,
+                                 int addrlen);
 static void on_rx_from_peer(pj_ioqueue_key_t *key,
                             pj_ioqueue_op_key_t *op_key,
                             pj_ssize_t bytes_read);
@@ -209,9 +216,9 @@ static pj_status_t send_allocate_response(pj_turn_allocation *alloc,
                               (unsigned)alloc->relay.lifetime);
 
     /* Add BANDWIDTH */
-    pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
-                              PJ_STUN_ATTR_BANDWIDTH,
-                              alloc->bandwidth);
+//     pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
+//                               PJ_STUN_ATTR_BANDWIDTH,
+//                               alloc->bandwidth);
 
     /* Add RESERVATION-TOKEN */
     PJ_TODO(ADD_RESERVATION_TOKEN);
@@ -398,7 +405,7 @@ static void destroy_relay(pj_turn_relay_res *relay)
     if (relay->timer.id) {
         pj_timer_heap_cancel(relay->allocation->server->core.timer_heap,
                              &relay->timer);
-        relay->timer.id = PJ_FALSE;
+        relay->timer.id = TIMER_ID_NONE;
     }
 
     if (relay->tp.key) {
@@ -475,9 +482,11 @@ PJ_DEF(void) pj_turn_allocation_on_transport_closed( pj_turn_allocation *alloc,
 {
     PJ_LOG(5,(alloc->obj_name, "Transport %s unexpectedly closed, destroying "
               "allocation %s", tp->info, alloc->info));
-    pj_turn_transport_dec_ref(tp, alloc);
+    pj_lock_acquire(alloc->lock);
+    alloc->relay.lifetime = 0;
+    pj_lock_release(alloc->lock);
     alloc->transport = NULL;
-    destroy_allocation(alloc);
+    alloc_shutdown(alloc);
 }
 
 
@@ -591,13 +600,14 @@ static pj_status_t create_relay(pj_turn_srv *srv,
                                 const alloc_request *req,
                                 pj_turn_relay_res *relay)
 {
-    enum { RETRY = 40 };
+    enum { RETRY = 100 };
     pj_pool_t *pool = alloc->pool;
     int retry, retry_max, sock_type;
     pj_ioqueue_callback icb;
     int af, namelen;
     pj_stun_string_attr *sa;
     pj_status_t status;
+    pj_str_t *ip;
 
     pj_bzero(relay, sizeof(*relay));
 
@@ -606,6 +616,9 @@ static pj_status_t create_relay(pj_turn_srv *srv,
 
     /* TODO: get the requested address family from somewhere */
     af = alloc->transport->listener->addr.addr.sa_family;
+
+    /* bound ip */
+    ip = &alloc->transport->listener->listen_ip;
 
     /* Save realm */
     sa = (pj_stun_string_attr*)
@@ -644,6 +657,9 @@ static pj_status_t create_relay(pj_turn_srv *srv,
         return status;
     }
 
+    /* set sock buffer size */
+    pj_util_set_sock_buf_size(relay->tp.sock, PJ_TURN_UDP_SOCK_BUF_SIZE);
+
     /* Find suitable port for this allocation */
     if (req->rpp_port) {
         retry_max = 1;
@@ -674,7 +690,7 @@ static pj_status_t create_relay(pj_turn_srv *srv,
 
         pj_lock_release(srv->core.lock);
 
-        pj_sockaddr_init(af, &bound_addr, NULL, port);
+        pj_sockaddr_init(af, &bound_addr, ip->slen ? ip : NULL, port);
 
         status = pj_sock_bind(relay->tp.sock, &bound_addr,
                               pj_sockaddr_get_len(&bound_addr));
@@ -734,7 +750,7 @@ static pj_status_t create_relay(pj_turn_srv *srv,
 
     /* Kick off pending read operation */
     pj_ioqueue_op_key_init(&relay->tp.read_key, sizeof(relay->tp.read_key));
-    on_rx_from_peer(relay->tp.key, &relay->tp.read_key, 0);
+    on_rx_from_peer(relay->tp.key, &relay->tp.read_key, -PJ_EPENDING);
 
     /* Done */
     return PJ_SUCCESS;
@@ -781,16 +797,16 @@ static void send_reply_ok(pj_turn_allocation *alloc,
     }
 
     /* Add LIFETIME if this is not ChannelBind. */
-    if (PJ_STUN_GET_METHOD(tdata->msg->hdr.type)!=PJ_STUN_CHANNEL_BIND_METHOD){
+    if (PJ_STUN_GET_METHOD(tdata->msg->hdr.type) == PJ_STUN_REFRESH_METHOD) {
         pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
                                   PJ_STUN_ATTR_LIFETIME, interval);
 
         /* Add BANDWIDTH if lifetime is not zero */
-        if (interval != 0) {
-            pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
-                                      PJ_STUN_ATTR_BANDWIDTH,
-                                      alloc->bandwidth);
-        }
+        // if (interval != 0) {
+        //     pj_stun_msg_add_uint_attr(tdata->pool, tdata->msg,
+        //                               PJ_STUN_ATTR_BANDWIDTH,
+        //                               alloc->bandwidth);
+        // }
     }
 
     status = pj_stun_session_send_msg(alloc->sess, NULL, PJ_TRUE,
@@ -939,18 +955,6 @@ PJ_DEF(void) pj_turn_allocation_on_rx_client_pkt(pj_turn_allocation *alloc,
                                            &pkt->src.clt_addr,
                                            pkt->src_addr_len);
 
-        if (pkt->transport->listener->tp_type == PJ_TURN_TP_UDP) {
-            pkt->len = 0;
-        } else if (parsed_len > 0) {
-            if (parsed_len == pkt->len) {
-                pkt->len = 0;
-            } else {
-                pj_memmove(pkt->pkt, pkt->pkt+parsed_len,
-                           pkt->len - parsed_len);
-                pkt->len -= parsed_len;
-            }
-        }
-
         if (status != PJ_SUCCESS) {
             alloc_err(alloc, "Error handling STUN packet", status);
             goto on_return;
@@ -962,40 +966,21 @@ PJ_DEF(void) pj_turn_allocation_on_rx_client_pkt(pj_turn_allocation *alloc,
          */
         pj_turn_channel_data *cd = (pj_turn_channel_data*)pkt->pkt;
         pj_turn_permission *perm;
-        pj_ssize_t len;
+        pj_ssize_t len = pj_ntohs(cd->length);
+        int ch_num = pj_ntohs(cd->ch_number);
 
-        pj_assert(sizeof(*cd)==4);
-
-        /* For UDP check the packet length */
-        if (alloc->transport->listener->tp_type == PJ_TURN_TP_UDP) {
-            if (pkt->len < pj_ntohs(cd->length)+sizeof(*cd)) {
-                PJ_LOG(4,(alloc->obj_name,
-                          "ChannelData from %s discarded: UDP size error",
-                          alloc->info));
-                goto on_return;
-            }
-        } else {
-            pj_assert(!"Unsupported transport");
-            goto on_return;
-        }
-
-        perm = lookup_permission_by_chnum(alloc, pj_ntohs(cd->ch_number));
+        perm = lookup_permission_by_chnum(alloc, ch_num);
         if (!perm) {
             /* Discard */
-            PJ_LOG(4,(alloc->obj_name,
-                      "ChannelData from %s discarded: ch#0x%x not found",
-                      alloc->info, pj_ntohs(cd->ch_number)));
+            PJ_LOG(4, (alloc->obj_name,
+                       "ChannelData from %s discarded: ch#0x%x not found",
+                       alloc->info, ch_num));
             goto on_return;
         }
 
-        /* Relay the data */
-        len = pj_ntohs(cd->length);
-        pj_sock_sendto(alloc->relay.tp.sock, cd+1, &len, 0,
-                       &perm->hkey.peer_addr,
-                       pj_sockaddr_get_len(&perm->hkey.peer_addr));
-
-        /* Refresh permission */
-        refresh_permission(perm);
+        /* Relay the data to peer */
+        relay_to_peer(&alloc->relay, cd + 1, &len, 0, &perm->hkey.peer_addr,
+                      pj_sockaddr_get_len(&perm->hkey.peer_addr));
     }
 
 on_return:
@@ -1086,6 +1071,7 @@ static void on_rx_from_peer(pj_ioqueue_key_t *key,
 {
     pj_turn_relay_res *rel;
     pj_status_t status;
+    int flags = PJ_TURN_SOCK_READ_FLAGS;
 
     rel = (pj_turn_relay_res*) pj_ioqueue_get_user_data(key);
 
@@ -1093,23 +1079,32 @@ static void on_rx_from_peer(pj_ioqueue_key_t *key,
     pj_lock_acquire(rel->allocation->lock);
 
     do {
+        /*  Check if relay already disabled */
+        if (rel->lifetime == 0)
+            break;
+
         if (bytes_read > 0) {
             handle_peer_pkt(rel->allocation, rel, rel->tp.rx_pkt,
                             bytes_read, &rel->tp.src_addr);
         }
 
+        else if (bytes_read != -PJ_EPENDING &&
+                 bytes_read != -PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
+            break;
+        }
+
         /* Read next packet */
         bytes_read = sizeof(rel->tp.rx_pkt);
         rel->tp.src_addr_len = sizeof(rel->tp.src_addr);
-        status = pj_ioqueue_recvfrom(key, op_key,
-                                     rel->tp.rx_pkt, &bytes_read, 0,
-                                     &rel->tp.src_addr,
-                                     &rel->tp.src_addr_len);
+        status =
+            pj_ioqueue_recvfrom(key, op_key, rel->tp.rx_pkt, &bytes_read, flags,
+                                &rel->tp.src_addr, &rel->tp.src_addr_len);
 
         if (status != PJ_EPENDING && status != PJ_SUCCESS)
             bytes_read = -status;
 
-    } while (status != PJ_EPENDING && status != PJ_ECANCELLED);
+    } while (rel->lifetime > 0 && status != PJ_EPENDING &&
+             status != PJ_ECANCELLED);
 
     /* Release allocation lock */
     pj_lock_release(rel->allocation->lock);
@@ -1206,10 +1201,9 @@ static pj_status_t stun_on_rx_request(pj_stun_session *sess,
             /*
              * This is a refresh request.
              */
-
             /* Update lifetime */
             if (lifetime) {
-                alloc->relay.lifetime = lifetime->value;
+                alloc->relay.lifetime = PJ_MIN(lifetime->value, MAX_LIFETIME);
             }
 
             /* Update bandwidth */
@@ -1221,6 +1215,42 @@ static pj_status_t stun_on_rx_request(pj_stun_session *sess,
             /* Send reply */
             send_reply_ok(alloc, rdata);
         }
+
+    } else if (msg->hdr.type == PJ_STUN_CREATE_PERM_REQUEST) {
+        /*
+         * CreatePermission request.
+         */
+        pj_stun_xor_peer_addr_attr *peer_attr;
+        pj_turn_permission *p;
+
+        peer_attr = (pj_stun_xor_peer_addr_attr *)pj_stun_msg_find_attr(
+            msg, PJ_STUN_ATTR_XOR_PEER_ADDR, 0);
+
+        if (!peer_attr) {
+            send_reply_err(alloc, rdata, PJ_TRUE, PJ_STUN_SC_BAD_REQUEST, NULL);
+            return PJ_SUCCESS;
+        }
+
+        /* If permission is not found, create a new one.
+         */
+        p = lookup_permission_by_addr(
+            alloc, &peer_attr->sockaddr,
+            pj_sockaddr_get_len(&peer_attr->sockaddr));
+
+        if (!p) {
+            p = create_permission(alloc, &peer_attr->sockaddr,
+                                  pj_sockaddr_get_len(&peer_attr->sockaddr));
+            if (!p)
+                return PJ_SUCCESS;
+        }
+
+        /* Update */
+        refresh_permission(p);
+
+        /* Reply */
+        send_reply_ok(alloc, rdata);
+
+        return PJ_SUCCESS;
 
     } else if (msg->hdr.type == PJ_STUN_CHANNEL_BIND_REQUEST) {
         /*
@@ -1362,26 +1392,51 @@ static pj_status_t stun_on_rx_indication(pj_stun_session *sess,
     data_attr = (pj_stun_data_attr*)
                 pj_stun_msg_find_attr(msg, PJ_STUN_ATTR_DATA, 0);
 
-    /* Create/update/refresh the permission */
-    perm = lookup_permission_by_addr(alloc, &peer_attr->sockaddr,
-                                     pj_sockaddr_get_len(&peer_attr->sockaddr));
-    if (perm == NULL) {
-        perm = create_permission(alloc, &peer_attr->sockaddr,
-                                 pj_sockaddr_get_len(&peer_attr->sockaddr));
-    }
-    refresh_permission(perm);
-
     /* Return if we don't have data */
     if (data_attr == NULL)
         return PJ_SUCCESS;
 
+    /* Create/update/refresh the permission */
+    perm = lookup_permission_by_addr(alloc, &peer_attr->sockaddr,
+                                     pj_sockaddr_get_len(&peer_attr->sockaddr));
+    if (perm == NULL) {
+        /* Discard if no permission */
+        return PJ_SUCCESS;
+    }
+
     /* Relay the data to peer */
     len = data_attr->length;
-    pj_sock_sendto(alloc->relay.tp.sock, data_attr->data,
-                   &len, 0, &peer_attr->sockaddr,
-                   pj_sockaddr_get_len(&peer_attr->sockaddr));
+    relay_to_peer(&alloc->relay, data_attr->data, &len, 0, &peer_attr->sockaddr,
+                  pj_sockaddr_get_len(&peer_attr->sockaddr));
 
     return PJ_SUCCESS;
 }
 
+static pj_status_t relay_to_peer(pj_turn_relay_res *relay,
+                                 const void *data,
+                                 pj_ssize_t *len,
+                                 pj_uint32_t flag,
+                                 const pj_sockaddr_t *addr,
+                                 int addrlen)
+{
+    pj_status_t status;
+    const char *tag = relay->allocation->obj_name;
 
+    /* Check send key value */
+    if (!relay->tp.key) {
+        PJ_LOG(4, (tag, "Can't relay to peer, tp.key is null"));
+        return PJ_EINVALIDOP;
+    }
+
+    status = pj_ioqueue_sendto(relay->tp.key, &relay->tp.write_key, data, len,
+                               flag, addr, addrlen);
+
+    if (status != PJ_SUCCESS) {
+        if (status == PJ_EPENDING) {
+            PJ_LOG(4, (tag, "relay-peer sendto pending"));
+        } else {
+            PJ_PERROR(2, (tag, status, "relay-peer sendto error(%d)", status));
+        }
+    }
+    return status;
+}

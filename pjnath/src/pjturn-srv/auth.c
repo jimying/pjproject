@@ -1,3 +1,4 @@
+/* $Id$ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
@@ -17,6 +18,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA 
  */
 #include "auth.h"
+#include "turn.h"
 #include <pjlib.h>
 
 
@@ -26,6 +28,7 @@
 #define MAX_NONCE       32
 
 static char g_realm[MAX_REALM];
+static char g_nonce[MAX_NONCE];
 
 static struct cred_t
 {
@@ -48,8 +51,13 @@ static struct cred_t
  */
 PJ_DEF(pj_status_t) pj_turn_auth_init(const char *realm)
 {
+    const pj_turn_config *pcfg = pj_turn_get_config();
     PJ_ASSERT_RETURN(pj_ansi_strlen(realm) < MAX_REALM, PJ_ENAMETOOLONG);
+    if (pcfg->realm.ptr)
+        realm = pcfg->realm.ptr;
+    pj_ansi_strcpy(g_realm, realm);
     pj_ansi_strxcpy(g_realm, realm, sizeof(g_realm));
+    pj_turn_auth_refresh();
     return PJ_SUCCESS;
 }
 
@@ -61,6 +69,10 @@ PJ_DEF(void) pj_turn_auth_dinit(void)
     /* Nothing to do */
 }
 
+PJ_DEF(void) pj_turn_auth_refresh(void)
+{
+    pj_create_random_string(g_nonce, 8);
+}
 
 /*
  * This function is called by pj_stun_verify_credential() when
@@ -75,7 +87,7 @@ PJ_DEF(pj_status_t) pj_turn_get_auth(void *user_data,
     PJ_UNUSED_ARG(pool);
 
     *realm = pj_str(g_realm);
-    *nonce = pj_str(THE_NONCE);
+    *nonce = pj_str(g_nonce);
 
     return PJ_SUCCESS;
 }
@@ -92,6 +104,7 @@ PJ_DEF(pj_status_t) pj_turn_get_password(const pj_stun_msg *msg,
                                          pj_stun_passwd_type *data_type,
                                          pj_str_t *data)
 {
+    const pj_turn_config *pcfg = pj_turn_get_config();
     unsigned i;
 
     PJ_UNUSED_ARG(msg);
@@ -104,11 +117,24 @@ PJ_DEF(pj_status_t) pj_turn_get_password(const pj_stun_msg *msg,
         return PJ_EINVAL;
     }
 
-    for (i=0; i<PJ_ARRAY_SIZE(g_cred); ++i) {
-        if (pj_stricmp2(username, g_cred[i].username) == 0) {
-            *data_type = PJ_STUN_PASSWD_PLAIN;
-            *data = pj_str(g_cred[i].passwd);
-            return PJ_SUCCESS;
+    if (pcfg->user_cnt == 0) {
+        for (i = 0; i < PJ_ARRAY_SIZE(g_cred); ++i) {
+            if (pj_stricmp2(username, g_cred[i].username) == 0) {
+                *data_type = PJ_STUN_PASSWD_PLAIN;
+                *data = pj_str(g_cred[i].passwd);
+                return PJ_SUCCESS;
+            }
+        }
+    }
+
+    else {
+        for (i = 0; i < pcfg->user_cnt; ++i) {
+            const pj_turn_user_acc *acc = pcfg->users + i;
+            if (pj_stricmp(username, &acc->usr) == 0) {
+                *data_type = PJ_STUN_PASSWD_PLAIN;
+                *data = acc->pwd;
+                return PJ_SUCCESS;
+            }
         }
     }
 
@@ -133,7 +159,7 @@ PJ_DEF(pj_bool_t) pj_turn_verify_nonce(const pj_stun_msg *msg,
     PJ_UNUSED_ARG(realm);
     PJ_UNUSED_ARG(username);
 
-    if (pj_stricmp2(nonce, THE_NONCE)) {
+    if (pj_stricmp2(nonce, g_nonce)) {
         LOG((THIS_FILE, "auth error: invalid nonce '%.*s'", 
                         (int)nonce->slen, nonce->ptr));
         return PJ_FALSE;
