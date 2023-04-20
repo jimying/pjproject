@@ -30,7 +30,7 @@
 #define MAX_TIMER               (MAX_HANDLES * 2)
 #define MAX_LISTENERS           16
 #define MAX_THREADS             2
-#define MAX_NET_EVENTS          1000
+#define MAX_NET_EVENTS          1
 
 #if defined(PJ_IOQUEUE_HAS_WAKEUP) && PJ_IOQUEUE_HAS_WAKEUP != 0
 #if !defined(PJ_WIN32) && !defined(PJ_WIN64)

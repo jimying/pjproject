@@ -243,8 +243,18 @@ struct tcp_transport
     pj_sock_t            sock;
     pj_activesock_t     *asock;
     struct recv_op       recv_op;
-    pj_ioqueue_op_key_t  send_op;
 
+    pj_list              tx_pending_list;
+    pj_lock_t           *pending_lock;
+};
+
+struct tcp_tx_data
+{
+    PJ_DECL_LIST_MEMBER(struct tcp_tx_data);
+    pj_pool_t *pool;
+    pj_ioqueue_op_key_t send_key;
+    char pkt[PJ_TURN_MAX_PKT_LEN];
+    pj_size_t size;
 };
 
 static pj_bool_t tcp_on_data_read(pj_activesock_t *asock,
@@ -252,6 +262,10 @@ static pj_bool_t tcp_on_data_read(pj_activesock_t *asock,
                                   pj_size_t bytes_read,
                                   pj_status_t status,
                                   pj_size_t *remainder);
+
+static pj_bool_t tcp_on_data_sent(pj_activesock_t *asock,
+                                  pj_ioqueue_op_key_t *send_key,
+                                  pj_ssize_t sent);
 
 static pj_status_t tcp_sendto(pj_turn_transport *tp,
                               const void *packet,
@@ -292,6 +306,8 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
     tcp->sock = sock;
 
     pj_timer_entry_init(&tcp->timer, TIMER_NONE, tcp, &timer_callback);
+    pj_list_init(&tcp->tx_pending_list);
+    pj_lock_create_simple_mutex(pool, "tptcp_txpending%p", &tcp->pending_lock);
 
     /* set sock buffer size */
     pj_util_set_sock_buf_size(sock, PJ_TURN_TCP_SOCK_BUF_SIZE);
@@ -304,6 +320,7 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
     pj_activesock_cfg_default(&asock_opt);
     pj_bzero(&asock_cb, sizeof(asock_cb));
     asock_cb.on_data_read = tcp_on_data_read;
+    asock_cb.on_data_sent = tcp_on_data_sent;
     status = pj_activesock_create(pool, sock, pj_SOCK_STREAM(), &asock_opt,
                                   lis->server->core.ioqueue, &asock_cb, tcp,
                                   &tcp->asock);
@@ -352,10 +369,22 @@ static void tcp_destroy(struct tcp_transport *tcp)
 
     if (tcp->recv_op.pkt.pool) {
         pj_pool_release(tcp->recv_op.pkt.pool);
+        tcp->recv_op.pkt.pool = NULL;
     }
 
     if (tcp->pool) {
+        pj_lock_acquire(tcp->pending_lock);
+        while(!pj_list_empty(&tcp->tx_pending_list)) {
+            struct tcp_tx_data *tdata =
+                (struct tcp_tx_data *)tcp->tx_pending_list.next;
+            pj_list_erase(tdata);
+            pj_pool_release(tdata->pool);
+        }
+        pj_lock_release(tcp->pending_lock);
+        pj_lock_destroy(tcp->pending_lock);
+
         pj_pool_release(tcp->pool);
+        tcp->pool = NULL;
     }
 }
 
@@ -398,14 +427,14 @@ static pj_bool_t tcp_on_data_read(pj_activesock_t *asock,
                                   pj_status_t status,
                                   pj_size_t *remainder)
 {
-    struct tcp_transport *tcp = (struct tcp_transport *)pj_activesock_get_user_data(asock);
+    struct tcp_transport *tcp =
+        (struct tcp_transport *)pj_activesock_get_user_data(asock);
     pj_turn_pkt *pkt = &tcp->recv_op.pkt;
     PJ_UNUSED_ARG(data);
 
     if (status != PJ_SUCCESS && status != PJ_EPENDING) {
         /* TCP connection closed/error. Notify client and then destroy
          * ourselves.
-         * Note: the -PJ_EPENDING is the value passed during init.
          */
         PJ_PERROR(5, (tcp->base.obj_name, status, "TCP socket closed"));
         if (tcp->alloc) {
@@ -482,6 +511,22 @@ static pj_bool_t tcp_on_data_read(pj_activesock_t *asock,
     return PJ_TRUE;
 }
 
+static pj_bool_t tcp_on_data_sent(pj_activesock_t *asock,
+                                  pj_ioqueue_op_key_t *send_key,
+                                  pj_ssize_t sent)
+{
+    struct tcp_transport *tcp =
+        (struct tcp_transport *)pj_activesock_get_user_data(asock);
+    struct tcp_tx_data *tdata = (struct tcp_tx_data *)send_key->user_data;
+    PJ_UNUSED_ARG(sent);
+
+    pj_lock_acquire(tcp->pending_lock);
+    pj_list_erase(tdata);
+    pj_lock_release(tcp->pending_lock);
+    pj_pool_release(tdata->pool);
+
+    return sent > 0 ? PJ_TRUE : PJ_FALSE;
+}
 
 static pj_status_t tcp_sendto(pj_turn_transport *tp,
                               const void *packet,
@@ -493,6 +538,9 @@ static pj_status_t tcp_sendto(pj_turn_transport *tp,
     struct tcp_transport *tcp = (struct tcp_transport *)tp;
     pj_status_t status;
     pj_ssize_t length = (pj_ssize_t)size, sent;
+    pj_pool_factory *pf = tcp->base.listener->pool->factory;
+    pj_pool_t *pool;
+    struct tcp_tx_data *tdata;
 
     PJ_UNUSED_ARG(addr);
     PJ_UNUSED_ARG(addr_len);
@@ -501,11 +549,30 @@ static pj_status_t tcp_sendto(pj_turn_transport *tp,
     while (length & 0x3)
         length++;
 
+    pool = pj_pool_create(pf, "tcptdata%p",
+                          sizeof(struct tcp_tx_data) + 168,
+                          1000, NULL);
+    tdata = PJ_POOL_ZALLOC_T(pool, struct tcp_tx_data);
+    tdata->pool = pool;
+    tdata->send_key.user_data = tdata;
+    tdata->size = (pj_size_t)length;
+    pj_memcpy(tdata->pkt, packet, size);
+
     sent = length;
-    status = pj_activesock_send(tcp->asock, &tcp->send_op, packet, &sent, flag);
+    status = pj_activesock_send(tcp->asock, &tdata->send_key, tdata->pkt, &sent,
+                                flag);
 
     if (status != PJ_SUCCESS) {
         PJ_PERROR(2, (tcp->base.obj_name, status, "send error(%d)", status));
+    }
+
+    if (status == PJ_EPENDING) {
+        pj_lock_acquire(tcp->pending_lock);
+        pj_list_push_back(&tcp->tx_pending_list, tdata);
+        pj_lock_release(tcp->pending_lock);
+    }
+    else {
+        pj_pool_release(pool);
     }
 
     return status;
