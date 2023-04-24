@@ -241,15 +241,17 @@ struct tcp_transport
     int                  ref_cnt;
 
     pj_sock_t            sock;
-    pj_ioqueue_key_t    *key;
+    pj_activesock_t     *asock;
     struct recv_op       recv_op;
     pj_ioqueue_op_key_t  send_op;
+
 };
 
-
-static void tcp_on_read_complete(pj_ioqueue_key_t *key, 
-                                 pj_ioqueue_op_key_t *op_key, 
-                                 pj_ssize_t bytes_read);
+static pj_bool_t tcp_on_data_read(pj_activesock_t *asock,
+                                  void *data,
+                                  pj_size_t bytes_read,
+                                  pj_status_t status,
+                                  pj_size_t *remainder);
 
 static pj_status_t tcp_sendto(pj_turn_transport *tp,
                               const void *packet,
@@ -270,9 +272,12 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
 {
     pj_pool_t *pool;
     struct tcp_transport *tcp;
-    pj_ioqueue_callback cb;
     pj_status_t status;
     const pj_turn_config *pcfg = pj_turn_get_config();
+    pj_activesock_cfg asock_opt;
+    pj_activesock_cb asock_cb;
+    void *readbuf[1];
+    unsigned rbufsize;
 
     pool = pj_pool_create(lis->server->core.pf, "tcp%p", 1000, 1000, NULL);
 
@@ -295,12 +300,15 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
     if (pcfg->dscp_tcp > 0)
         pj_turn_set_tos(sock, pcfg->dscp_tcp);
 
-    /* Register to ioqueue */
-    pj_bzero(&cb, sizeof(cb));
-    cb.on_read_complete = &tcp_on_read_complete;
-    status = pj_ioqueue_register_sock(pool, lis->server->core.ioqueue, sock,
-                                      tcp, &cb, &tcp->key);
+    /* Create active socket */
+    pj_activesock_cfg_default(&asock_opt);
+    pj_bzero(&asock_cb, sizeof(asock_cb));
+    asock_cb.on_data_read = tcp_on_data_read;
+    status = pj_activesock_create(pool, sock, pj_SOCK_STREAM(), &asock_opt,
+                                  lis->server->core.ioqueue, &asock_cb, tcp,
+                                  &tcp->asock);
     if (status != PJ_SUCCESS) {
+        PJ_PERROR(1, (tcp->base.obj_name, status, "create activesock"));
         tcp_destroy(tcp);
         return;
     }
@@ -313,16 +321,23 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
     tcp->recv_op.pkt.src_addr_len = src_addr_len;
     pj_memcpy(&tcp->recv_op.pkt.src.clt_addr, src_addr, src_addr_len);
 
-    tcp_on_read_complete(tcp->key, &tcp->recv_op.op_key, -PJ_EPENDING);
+    /* Start read */
+    readbuf[0] = tcp->recv_op.pkt.pkt;
+    rbufsize = sizeof(tcp->recv_op.pkt.pkt);
+    status = pj_activesock_start_read2(tcp->asock, pool, rbufsize, readbuf, 0);
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(1, (tcp->base.obj_name, status, "activesock start read"));
+        tcp_destroy(tcp);
+    }
     /* Should not access transport from now, it may have been destroyed */
 }
 
 
 static void tcp_destroy(struct tcp_transport *tcp)
 {
-    if (tcp->key) {
-        pj_ioqueue_unregister(tcp->key);
-        tcp->key = NULL;
+    if (tcp->asock) {
+        pj_activesock_close(tcp->asock);
+        tcp->asock = NULL;
         tcp->sock = PJ_INVALID_SOCKET;
     } else if (tcp->sock != PJ_INVALID_SOCKET) {
         pj_sock_close(tcp->sock);
@@ -348,9 +363,9 @@ static void delay_tcp_destroy(struct tcp_transport *tcp)
 {
     pj_time_val delay = {0, 100};
 
-    if (tcp->key) {
-        pj_ioqueue_unregister(tcp->key);
-        tcp->key = NULL;
+    if (tcp->asock) {
+        pj_activesock_close(tcp->asock);
+        tcp->asock = NULL;
         tcp->sock = PJ_INVALID_SOCKET;
     } else if (tcp->sock != PJ_INVALID_SOCKET) {
         pj_sock_close(tcp->sock);
@@ -377,113 +392,94 @@ static void timer_callback(pj_timer_heap_t *timer_heap,
     tcp_destroy(tcp);
 }
 
-
-static void tcp_on_read_complete(pj_ioqueue_key_t *key, 
-                                 pj_ioqueue_op_key_t *op_key, 
-                                 pj_ssize_t bytes_read)
+static pj_bool_t tcp_on_data_read(pj_activesock_t *asock,
+                                  void *data,
+                                  pj_size_t bytes_read,
+                                  pj_status_t status,
+                                  pj_size_t *remainder)
 {
-    struct tcp_transport *tcp;
-    struct recv_op *recv_op = (struct recv_op*) op_key;
-    pj_status_t status;
-    pj_turn_pkt *pkt = &recv_op->pkt;
-    int flags = PJ_TURN_SOCK_READ_FLAGS;
+    struct tcp_transport *tcp = (struct tcp_transport *)pj_activesock_get_user_data(asock);
+    pj_turn_pkt *pkt = &tcp->recv_op.pkt;
+    PJ_UNUSED_ARG(data);
 
-    tcp = (struct tcp_transport*) pj_ioqueue_get_user_data(key);
+    if (status != PJ_SUCCESS && status != PJ_EPENDING) {
+        /* TCP connection closed/error. Notify client and then destroy
+         * ourselves.
+         * Note: the -PJ_EPENDING is the value passed during init.
+         */
+        PJ_PERROR(5, (tcp->base.obj_name, status, "TCP socket closed"));
+        if (tcp->alloc) {
+            pj_turn_allocation_on_transport_closed(tcp->alloc, &tcp->base);
+            tcp->alloc = NULL;
+        }
 
-    do {
+        delay_tcp_destroy(tcp);
+        return PJ_FALSE;
+    } else if (bytes_read > 0) {
         /* Report to server or allocation, if we have allocation */
-        if (bytes_read > 0) {
+        pj_size_t left_len;
+        pj_uint16_t *pd;
+        pj_uint16_t typ;
+        pj_size_t len;
 
-            pkt->len += bytes_read;
-            // pj_gettimeofday(&pkt->rx_time);
+        // pj_gettimeofday(&pkt->rx_time);
+        pkt->len = bytes_read;
+        left_len = pkt->len;
 
-            pj_size_t left_len = pkt->len;
-            pj_uint16_t *pd;
-            pj_uint16_t typ;
-            pj_size_t len;
+        for (;;) {
+            if (left_len < 4)
+                break;
 
-            for (;;) {
-                if (left_len < 4)
-                    break;
+            pd = (pj_uint16_t *)pkt->pkt;
+            typ = pj_ntohs(*pd);
+            len = pj_ntohs(*(pd + 1));
 
-                pd = (pj_uint16_t *)pkt->pkt;
-                typ = pj_ntohs(*pd);
-                len = pj_ntohs(*(pd + 1));
-
-                if (typ < 0x4000) {
-                    len += sizeof(pj_stun_msg_hdr);
-                } else if (typ < 0x8000) {
-                    len += sizeof(pj_turn_channel_data);
-                    /* 4 byte alignment */
-                    while (len & 0x3)
-                        len++;
-                } else {
-                    PJ_LOG(2, ("TCP", "Bad msg typ: 0x%04x", typ));
-                    pkt->len = 0; // reset pkt
-                    break;
-                }
-
-                /* check data size */
-                if (left_len < len) {
-                    // no enough, wait more ..
-                    break;
-                }
-
-                /* Parse a whole msg */
-                pkt->len = len;
-                if (tcp->alloc) {
-                    pj_turn_allocation_on_rx_client_pkt(tcp->alloc, pkt);
-                } else {
-                    pj_turn_srv_on_rx_pkt(tcp->base.listener->server, pkt);
-                }
-
-                /* Continue to parse */
-                left_len -= len;
-                pkt->len = left_len;
-                if (left_len > 0)
-                    pj_memmove(pkt->pkt, pkt->pkt + len, left_len);
+            if (typ < 0x4000) {
+                len += sizeof(pj_stun_msg_hdr);
+            } else if (typ < 0x8000) {
+                len += sizeof(pj_turn_channel_data);
+                /* 4 byte alignment */
+                while (len & 0x3)
+                    len++;
+            } else {
+                PJ_LOG(2, ("TCP", "Bad msg typ: 0x%04x", typ));
+                pkt->len = 0; // reset pkt
+                break;
             }
 
-        } else if (bytes_read != -PJ_EPENDING &&
-                   bytes_read != -PJ_STATUS_FROM_OS(PJ_BLOCKING_ERROR_VAL)) {
-            /* TCP connection closed/error. Notify client and then destroy 
-             * ourselves.
-             * Note: the -PJ_EPENDING is the value passed during init.
-             */
+            /* check data size */
+            if (left_len < len) {
+                // no enough, wait more ..
+                break;
+            }
+
+            /* Parse a whole msg */
+            pkt->len = len;
             if (tcp->alloc) {
-                if (bytes_read != 0) {
-                    PJ_PERROR(2, (tcp->base.obj_name, -bytes_read,
-                                  "TCP socket error(%ld)", -bytes_read));
-                } else {
-                    PJ_LOG(5,(tcp->base.obj_name, "TCP socket closed"));
-                }
-                pj_turn_allocation_on_transport_closed(tcp->alloc, &tcp->base);
-                tcp->alloc = NULL;
+                pj_turn_allocation_on_rx_client_pkt(tcp->alloc, pkt);
+            } else {
+                pj_turn_srv_on_rx_pkt(tcp->base.listener->server, pkt);
             }
 
-            delay_tcp_destroy(tcp);
-            return;
+            /* Continue to parse */
+            left_len -= len;
+            pkt->len = left_len;
+            if (left_len > 0)
+                pj_memmove(pkt->pkt, pkt->pkt + len, left_len);
         }
 
         /* Reset pool */
         // pj_pool_reset(recv_op->pkt.pool);
 
         /* If packet is full discard it */
-        if (recv_op->pkt.len == sizeof(recv_op->pkt.pkt)) {
-            PJ_LOG(4,(tcp->base.obj_name, "Buffer discarded"));
-            recv_op->pkt.len = 0;
+        if (pkt->len == sizeof(pkt->pkt)) {
+            PJ_LOG(4, (tcp->base.obj_name, "Buffer discarded"));
+            pkt->len = 0;
         }
 
-        /* Read next packet */
-        bytes_read = sizeof(recv_op->pkt.pkt) - recv_op->pkt.len;
-        status = pj_ioqueue_recv(tcp->key, op_key,
-                                 recv_op->pkt.pkt + recv_op->pkt.len,
-                                 &bytes_read, flags);
-
-        if (status != PJ_EPENDING && status != PJ_SUCCESS)
-            bytes_read = -status;
-
-    } while (status != PJ_EPENDING && status != PJ_ECANCELLED);
+        *remainder = pkt->len;
+    }
+    return PJ_TRUE;
 }
 
 
@@ -495,7 +491,8 @@ static pj_status_t tcp_sendto(pj_turn_transport *tp,
                               int addr_len)
 {
     struct tcp_transport *tcp = (struct tcp_transport *)tp;
-    pj_ssize_t length = size;
+    pj_status_t status;
+    pj_ssize_t length = (pj_ssize_t)size, sent;
 
     PJ_UNUSED_ARG(addr);
     PJ_UNUSED_ARG(addr_len);
@@ -504,8 +501,8 @@ static pj_status_t tcp_sendto(pj_turn_transport *tp,
     while (length & 0x3)
         length++;
 
-    pj_status_t status =
-        pj_ioqueue_send(tcp->key, &tcp->send_op, packet, &length, flag);
+    sent = length;
+    status = pj_activesock_send(tcp->asock, &tcp->send_op, packet, &sent, flag);
 
     if (status != PJ_SUCCESS) {
         PJ_PERROR(2, (tcp->base.obj_name, status, "send error(%d)", status));
