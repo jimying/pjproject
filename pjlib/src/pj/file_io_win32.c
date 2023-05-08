@@ -91,7 +91,7 @@ PJ_DEF(pj_status_t) pj_file_open( pj_pool_t *pool,
 
     if ((flags & PJ_O_CLOEXEC) == PJ_O_CLOEXEC) {
         /* Win32 not support cloexec flag, should remove it */
-        flags &= ~PJ_O_CLOEXEC;
+        flags &= ~(PJ_O_CLOEXEC & 0xF);
     }
 
     if ((flags & PJ_O_WRONLY) == PJ_O_WRONLY) {
