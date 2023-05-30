@@ -27,7 +27,7 @@
 
 #define REALM           "pjsip.org"
 #define LOG_LEVEL        4
-#define THIS_FILE       "main.c"
+#define THIS_FILE       "main"
 
 static pj_caching_pool g_cp;
 static pj_bool_t g_daemon = PJ_FALSE;
@@ -182,8 +182,8 @@ static int sys_daemon(void)
         return errno;
     if (freopen("/dev/null", "w", stdout) == NULL)
         return errno;
-    // if (freopen("/dev/null", "w", stderr) == NULL)
-    // return errno;
+    if (freopen("/dev/null", "w", stderr) == NULL)
+        return errno;
 
     return 0;
 #else
@@ -217,8 +217,8 @@ static void init_sig_handler()
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     if (g_daemon) {
-        pj_log_set_level(1);
-        sys_daemon();        
+        pj_log_set_level(2);
+        sys_daemon();
     }
 #endif
 }
@@ -243,9 +243,62 @@ static void dump_pid()
     pj_file_close(fd);
 }
 
+static pj_oshandle_t g_log_fd = NULL;
+static pj_pool_t *g_log_pool = NULL;
+static const pj_str_t *g_log_file = NULL;
+static void open_logfile(const pj_str_t *logpath)
+{
+    static char tmp_buf[1000];
+    pj_status_t status;
+
+    if (!logpath)
+        return;
+    if (!logpath->slen)
+        return;
+
+    g_log_pool = pj_pool_create_on_buf(NULL, tmp_buf, sizeof(tmp_buf));
+    status = pj_file_open(g_log_pool, logpath->ptr, PJ_O_WRONLY | PJ_O_APPEND,
+                          &g_log_fd);
+    if (status != PJ_SUCCESS) {
+        return;
+    }
+    g_log_file = logpath;
+}
+
+static void close_logfile()
+{
+    if (g_log_fd) {
+        pj_file_close(g_log_fd);
+        g_log_fd = NULL;
+    }
+}
+
+static void write_logfile(const char *data, int len)
+{
+    pj_ssize_t xlen = (pj_ssize_t)len;
+    pj_off_t filesize;
+    pj_status_t status;
+    if (!g_log_fd)
+        return;
+    filesize = pj_file_size(g_log_file->ptr);
+    if (filesize + len > 500*1024) {
+        close_logfile();
+        pj_pool_reset(g_log_pool);
+        status = pj_file_open(g_log_pool, g_log_file->ptr, PJ_O_WRONLY,
+                              &g_log_fd);
+        if (status != PJ_SUCCESS) {
+            return;
+        }
+    }
+    pj_file_write(g_log_fd, data, &xlen);
+    pj_file_flush(g_log_fd);
+}
+
 static void log_callback(int level, const char *data, int len)
 {
-    fprintf(level < 2 ? stderr : stdout, "%.*s", len, data);
+    if (!g_daemon)
+        fprintf(level < 2 ? stderr : stdout, "%.*s", len, data);
+    write_logfile(data, len);
 }
 
 int main(int argc, char **argv)
@@ -267,6 +320,7 @@ int main(int argc, char **argv)
 
     pj_log_set_log_func(log_callback);
     pj_log_set_level(LOG_LEVEL);
+    pj_log_set_decor(pj_log_get_decor() | PJ_LOG_HAS_LEVEL_TEXT);
 
     // pj_dump_config();
     pjlib_util_init();
@@ -283,12 +337,13 @@ int main(int argc, char **argv)
     pj_turn_config_print();
     pcfg = pj_turn_get_config();
 
+    open_logfile(&pcfg->log_file);
     pj_turn_auth_init(REALM);
 
     status = pj_turn_srv_create(&g_cp.factory, &srv);
     if (status != PJ_SUCCESS) {
         PJ_PERROR(1, (THIS_FILE, status, "Error creating server"));
-        return status;
+        goto on_error;
     }
 
     nworkers = srv->core.thread_cnt;
@@ -296,7 +351,7 @@ int main(int argc, char **argv)
     status = pj_enum_ip_interface(pj_AF_INET(), &addr_cnt, addr_list);
     if (status != PJ_SUCCESS) {
         PJ_PERROR(1, (THIS_FILE, status, "Error enum ip interface"));
-        return status;
+        goto on_error;
     }
 
     for (i = 0; i < (int)addr_cnt; i++) {
@@ -313,7 +368,7 @@ int main(int argc, char **argv)
                 PJ_PERROR(1, (THIS_FILE, status,
                               "Error creating UDP listener %.*s:%d",
                               (int)sip.slen, sip.ptr, pcfg->listening_port));
-                return status;
+                goto on_error;
             }
 
             status = pj_turn_srv_add_listener(srv, listener);
@@ -321,7 +376,7 @@ int main(int argc, char **argv)
                 PJ_PERROR(1, (THIS_FILE, status,
                               "Error adding UDP listener %.*s:%d",
                               (int)sip.slen, sip.ptr, pcfg->listening_port));
-                return status;
+                goto on_error;
             }
         }
 
@@ -334,7 +389,7 @@ int main(int argc, char **argv)
                 PJ_PERROR(1, (THIS_FILE, status,
                               "Error creating TCP listener %.*s:%d",
                               (int)sip.slen, sip.ptr, pcfg->listening_port));
-                return status;
+                goto on_error;
             }
 
             status = pj_turn_srv_add_listener(srv, listener);
@@ -342,18 +397,20 @@ int main(int argc, char **argv)
                 PJ_PERROR(1, (THIS_FILE, status,
                               "Error adding TCP listener %.*s:%d",
                               (int)sip.slen, sip.ptr, pcfg->listening_port));
-                return status;
+                goto on_error;
             }
         }
 #endif
     }
 
 #if PJ_HAS_TCP
-    status = pj_turn_create_http_admin(srv, pj_AF_INET(), NULL,
-                                       pcfg->listening_port - 1, 1);
-    if (status != PJ_SUCCESS) {
-        PJ_PERROR(1, (THIS_FILE, status, "Error creating HTTP listener %d",
-                      pcfg->listening_port - 1));
+    if (pcfg->web_admin) {
+        status = pj_turn_create_http_admin(srv, pj_AF_INET(), NULL,
+                                           pcfg->listening_port - 1, 1);
+        if (status != PJ_SUCCESS) {
+            PJ_PERROR(1, (THIS_FILE, status, "Error creating HTTP listener %d",
+                          pcfg->listening_port - 1));
+        }
     }
 #endif
 
@@ -372,13 +429,20 @@ int main(int argc, char **argv)
 #endif
 
 #if PJ_HAS_TCP
-    pj_turn_destroy_http_admin();
+    if (pcfg->web_admin)
+        pj_turn_destroy_http_admin();
 #endif
     pj_turn_srv_destroy(srv);
+    close_logfile();
     pj_turn_config_destroy();
     pj_caching_pool_destroy(&g_cp);
     pj_shutdown();
 
     return 0;
+
+on_error:
+    close_logfile();
+    pj_shutdown();
+    return status;
 }
 

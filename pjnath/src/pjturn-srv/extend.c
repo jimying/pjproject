@@ -629,6 +629,14 @@ pj_status_t pj_turn_config_load(void)
         else if (pj_strcmp2(&key, "no-tcp") == 0) {
             pcfg->no_tcp = PJ_TRUE;
         }
+
+        else if (pj_strcmp2(&key, "web-admin") == 0) {
+            pcfg->web_admin = PJ_TRUE;
+        }
+
+        else if (pj_strcmp2(&key, "log-file") == 0) {
+            pj_strdup_with_null(pcfg->pool, &pcfg->log_file, &val);
+        }
     }
 
     pj_scan_fini(scanner);
@@ -651,10 +659,12 @@ void pj_turn_config_print(void)
     printf("\tno-tcp: %u\n", pcfg->no_tcp);
     printf("\ttos: %d(0x%x) %d(0x%x)\n", pcfg->dscp_udp, pcfg->dscp_udp << 2,
            pcfg->dscp_tcp, pcfg->dscp_tcp << 2);
+    // printf("\tweb-admin:%u\n", pcfg->web_admin);
+    printf("\tlog-file:%.*s\n", (int)pcfg->log_file.slen, pcfg->log_file.ptr);
     printf("\tusers:\n");
     for (i = 0; i < pcfg->user_cnt; i++) {
         const pj_turn_user_acc *acc = pcfg->users + i;
-        printf("\t  %u. %.*s:%.*s\n", i+1, (int)acc->usr.slen, acc->usr.ptr,
+        printf("\t  %u. %.*s:%.*s\n", i + 1, (int)acc->usr.slen, acc->usr.ptr,
                (int)acc->pwd.slen, acc->pwd.ptr);
     }
 }
