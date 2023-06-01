@@ -637,6 +637,17 @@ pj_status_t pj_turn_config_load(void)
         else if (pj_strcmp2(&key, "log-file") == 0) {
             pj_strdup_with_null(pcfg->pool, &pcfg->log_file, &val);
         }
+
+        else if (pj_strcmp2(&key, "pidfile") == 0) {
+            if (val.slen > 0) {
+                if (val.ptr[0] == '"') {
+                    pj_str_t xval = {val.ptr + 1, val.slen - 2};
+                    pj_strdup_with_null(pcfg->pool, &pcfg->pidfile, &xval);
+                } else {
+                    pj_strdup_with_null(pcfg->pool, &pcfg->pidfile, &val);
+                }
+            }
+        }
     }
 
     pj_scan_fini(scanner);

@@ -223,24 +223,31 @@ static void init_sig_handler()
 #endif
 }
 
-static void dump_pid()
+static pj_status_t dump_pid(const pj_str_t *pidfile)
 {
     char tmp_buf[1000];
     pj_pool_t *tmp_pool = pj_pool_create_on_buf(NULL, tmp_buf, sizeof(tmp_buf));
     pj_oshandle_t fd = NULL;
     pj_status_t rc;
     pj_str_t str_pid;
+    const char *xpidfile;
 
-    rc = pj_file_open(tmp_pool, "./turnserver.pid", PJ_O_WRONLY, &fd);
+    if (pidfile && pidfile->slen > 0)
+        xpidfile = pidfile->ptr;
+    else
+        xpidfile = "./run.pid";
+
+    rc = pj_file_open(tmp_pool, xpidfile, PJ_O_WRONLY, &fd);
     if (rc != PJ_SUCCESS) {
-        PJ_PERROR(1, (THIS_FILE, rc, "open pid file error"));
-        return;
+        PJ_PERROR(1, (THIS_FILE, rc, "open pid file(%s) error", xpidfile));
+        return rc;
     }
 
     str_pid.ptr = pj_pool_zalloc(tmp_pool, 32);
     str_pid.slen = pj_ansi_sprintf(str_pid.ptr, "%u", pj_getpid());
     pj_file_write(fd, str_pid.ptr, &str_pid.slen);
     pj_file_close(fd);
+    return PJ_SUCCESS;
 }
 
 static pj_oshandle_t g_log_fd = NULL;
@@ -416,7 +423,9 @@ int main(int argc, char **argv)
 
     puts("Server is running");
     if (g_daemon) {
-        dump_pid();
+        status = dump_pid(&pcfg->pidfile);
+        if (status != PJ_SUCCESS)
+            goto on_error;
     }
 
 #if PJ_HAS_THREADS

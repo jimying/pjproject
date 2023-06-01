@@ -640,7 +640,8 @@ typedef struct {
     pj_bool_t no_udp; // no-udp
     pj_bool_t no_tcp; // no-tcp
     pj_bool_t web_admin;  // web-admin
-    pj_str_t log_file; // log-file
+    pj_str_t log_file;    // log-file
+    pj_str_t pidfile;     // pidfile
 } pj_turn_config;
 
 const pj_turn_config *pj_turn_get_config(void);
