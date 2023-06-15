@@ -457,6 +457,7 @@ pj_status_t pj_turn_config_init(pj_pool_factory *pf)
     pcfg->relay_threads = 0;
     pcfg->min_port = PJ_TURN_MIN_PORT;
     pcfg->max_port = PJ_TURN_MAX_PORT;
+    pj_strset(&pcfg->log_level, "warn", 4);
 
     g_turn_cfg = pcfg;
     return PJ_SUCCESS;
@@ -638,6 +639,10 @@ pj_status_t pj_turn_config_load(void)
             pj_strdup_with_null(pcfg->pool, &pcfg->log_file, &val);
         }
 
+        else if (pj_strcmp2(&key, "log-level") == 0) {
+            pj_strdup_with_null(pcfg->pool, &pcfg->log_level, &val);
+        }
+
         else if (pj_strcmp2(&key, "pidfile") == 0) {
             if (val.slen > 0) {
                 if (val.ptr[0] == '"') {
@@ -671,7 +676,8 @@ void pj_turn_config_print(void)
     printf("\ttos: %d(0x%x) %d(0x%x)\n", pcfg->dscp_udp, pcfg->dscp_udp << 2,
            pcfg->dscp_tcp, pcfg->dscp_tcp << 2);
     // printf("\tweb-admin:%u\n", pcfg->web_admin);
-    printf("\tlog-file:%.*s\n", (int)pcfg->log_file.slen, pcfg->log_file.ptr);
+    printf("\tlog-file: %.*s\n", (int)pcfg->log_file.slen, pcfg->log_file.ptr);
+    printf("\tlog-level: %.*s\n", (int)pcfg->log_level.slen, pcfg->log_level.ptr);
     printf("\tusers:\n");
     for (i = 0; i < pcfg->user_cnt; i++) {
         const pj_turn_user_acc *acc = pcfg->users + i;

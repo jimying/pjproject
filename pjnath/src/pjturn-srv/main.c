@@ -217,11 +217,27 @@ static void init_sig_handler()
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     if (g_daemon) {
-        pj_log_set_level(2);
         sys_daemon();
     }
 #endif
 }
+
+#ifdef ENABLE_BREAKPAD
+#warning "Enable breakpad"
+#include "breakpad.h"
+#include <libgen.h>
+static void start_breakpad()
+{
+    const char *dump_dir = NULL;
+    const pj_turn_config *pcfg = pj_turn_get_config();
+    const pj_str_t *log_file = &pcfg->log_file;
+
+    if (!log_file || !log_file->slen)
+        return;
+    dump_dir = dirname(log_file->ptr);
+    start_breakpad_crash_handler(dump_dir, NULL);
+}
+#endif
 
 static pj_status_t dump_pid(const pj_str_t *pidfile)
 {
@@ -308,6 +324,33 @@ static void log_callback(int level, const char *data, int len)
     write_logfile(data, len);
 }
 
+static void set_loglevel(const pj_str_t *str)
+{
+    int log_level = 2;
+    const char *s;
+
+    if (!str || !str->slen)
+        goto on_return;
+
+    s = str->ptr;
+    if (!pj_ansi_strcasecmp("trace", s))
+        log_level = 5;
+    else if (!pj_ansi_strcasecmp("debug", s))
+        log_level = 4;
+    else if (!pj_ansi_strcasecmp("info", s))
+        log_level = 3;
+    else if (!pj_ansi_strcasecmp("warn", s))
+        log_level = 2;
+    else if (!pj_ansi_strcasecmp("error", s))
+        log_level = 1;
+
+on_return:
+    pj_log_set_decor(pj_log_get_decor() | PJ_LOG_HAS_LEVEL_TEXT |
+                     PJ_LOG_HAS_YEAR | PJ_LOG_HAS_MONTH |
+                     PJ_LOG_HAS_DAY_OF_MON);
+    pj_log_set_level(log_level);
+}
+
 int main(int argc, char **argv)
 {
     pj_turn_srv *srv;
@@ -327,7 +370,6 @@ int main(int argc, char **argv)
 
     pj_log_set_log_func(log_callback);
     pj_log_set_level(LOG_LEVEL);
-    pj_log_set_decor(pj_log_get_decor() | PJ_LOG_HAS_LEVEL_TEXT);
 
     // pj_dump_config();
     pjlib_util_init();
@@ -344,7 +386,11 @@ int main(int argc, char **argv)
     pj_turn_config_print();
     pcfg = pj_turn_get_config();
 
+    set_loglevel(&pcfg->log_level);
     open_logfile(&pcfg->log_file);
+#ifdef ENABLE_BREAKPAD
+    start_breakpad();
+#endif
     pj_turn_auth_init(REALM);
 
     status = pj_turn_srv_create(&g_cp.factory, &srv);
