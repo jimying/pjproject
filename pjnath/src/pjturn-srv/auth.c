@@ -1,4 +1,3 @@
-/* $Id$ */
 /* 
  * Copyright (C) 2008-2011 Teluu Inc. (http://www.teluu.com)
  * Copyright (C) 2003-2008 Benny Prijono <benny@prijono.org>
@@ -55,7 +54,6 @@ PJ_DEF(pj_status_t) pj_turn_auth_init(const char *realm)
     PJ_ASSERT_RETURN(pj_ansi_strlen(realm) < MAX_REALM, PJ_ENAMETOOLONG);
     if (pcfg->realm.ptr)
         realm = pcfg->realm.ptr;
-    pj_ansi_strcpy(g_realm, realm);
     pj_ansi_strxcpy(g_realm, realm, sizeof(g_realm));
     pj_turn_auth_refresh();
     return PJ_SUCCESS;
