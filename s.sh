@@ -1,7 +1,8 @@
 #!/bin/bash
-BUILD_OUT=$PWD/../build
+BUILD_OUT=$(readlink -f $PWD/../build)
 JOBS=$(nproc)
 OS=$(uname -s |  tr '[:upper:]' '[:lower:]')
+: ${DEBUG:=0}
 
 case $OS in
     *bsd*)
@@ -12,10 +13,19 @@ case $OS in
         ;;
 esac
 
-#export CFLAGS="-g"
-export CFLAGS="-DNDEBUG -fPIC -Wno-unused-label -Wextra -Wno-missing-field-initializers"
+if [ $DEBUG -eq 0 ];then
+    export CFLAGS="-DNDEBUG -fPIC -Wno-unused-label -Wextra -Wno-missing-field-initializers"
+    INS_DIR="$BUILD_OUT/pjsip"
+    echo "Build release version... install:$INS_DIR"
+else
+    export CFLAGS="-g -fPIC"
+    INS_DIR="$BUILD_OUT/pjsip_d"
+    echo "Build debug version... install:$INS_DIR"
+fi
+
+rm -rf $INS_DIR
 $MAKE distclean
-./configure --prefix=$BUILD_OUT/pjsip \
+./configure --prefix=$INS_DIR \
     --enable-epoll \
     --disable-libuuid \
     --disable-gsm-codec \
@@ -42,4 +52,4 @@ $MAKE dep
 #$MAKE -C pjlib-util/build -j  $JOBS
 #$MAKE -C pjnath/build -j  $JOBS
 $MAKE -j $JOBS
-#$MAKE install
+$MAKE install

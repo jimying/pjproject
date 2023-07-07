@@ -3,7 +3,7 @@
 //#   define PJSIP_UDP_SO_SNDBUF_SIZE	(1024*1024)
 //#   define PJSIP_UDP_SO_RCVBUF_SIZE	(1024*1024)
 //#define pj_assert(expr)
-#define PJ_LOG_MAX_LEVEL 4
+#define PJ_LOG_MAX_LEVEL 5
 #define PJ_LOG_THREAD_WIDTH 20
 
 // No check udp ip/port changed
