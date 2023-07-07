@@ -210,8 +210,14 @@ static void sig_handler(int sig)
 static void init_sig_handler()
 {
     static char tmp_buf[1000];
-    pj_pool_t *tmp_pool = pj_pool_create_on_buf(NULL, tmp_buf, sizeof(tmp_buf));
-    pj_sem_create(tmp_pool, NULL, 0, 1, &g_sem);
+    pj_pool_t *tmp_pool;
+    pj_status_t rc;
+
+    tmp_pool = pj_pool_create_on_buf(NULL, tmp_buf, sizeof(tmp_buf));
+    PJ_ASSERT_ON_FAIL(tmp_pool, return);
+
+    rc = pj_sem_create(tmp_pool, NULL, 0, 1, &g_sem);
+    PJ_ASSERT_ON_FAIL(rc == PJ_SUCCESS, return);
 
 #if !(defined(PJ_WIN32) || defined(PJ_WIN64))
     signal(SIGINT, sig_handler);

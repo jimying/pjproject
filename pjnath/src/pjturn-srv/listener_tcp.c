@@ -307,7 +307,13 @@ static void transport_create(pj_sock_t sock, pj_turn_listener *lis,
 
     pj_timer_entry_init(&tcp->timer, TIMER_NONE, tcp, &timer_callback);
     pj_list_init(&tcp->tx_pending_list);
-    pj_lock_create_simple_mutex(pool, "tptcp_txpending%p", &tcp->pending_lock);
+    status = pj_lock_create_simple_mutex(pool, "tptcp_txpending%p",
+                                         &tcp->pending_lock);
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(1, (tcp->base.obj_name, status, "create mutex"));
+        tcp_destroy(tcp);
+        return;
+    }
 
     /* set sock buffer size */
     pj_util_set_sock_buf_size(sock, PJ_TURN_TCP_SOCK_BUF_SIZE);

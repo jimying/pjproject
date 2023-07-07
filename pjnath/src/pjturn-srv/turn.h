@@ -580,7 +580,7 @@ PJ_INLINE(pj_status_t) pj_util_set_sock_buf_size(pj_sock_t sock, int size)
             PJ_TRUE, &sobuf_size);
 
 return_line:
-#if PJ_DEBUG
+#if 0
     {
         int sz_rx = 0, sz_tx = 0;
         int sz_len = sizeof(int);

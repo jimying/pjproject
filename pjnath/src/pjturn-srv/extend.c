@@ -478,7 +478,7 @@ pj_status_t pj_turn_config_load(void)
     char tmp_buf[50 * 1024];
     pj_pool_t *tmp_pool;
     pj_oshandle_t fd;
-    pj_size_t fsize;
+    pj_off_t fsize;
     char *fdata;
     pj_scanner *scanner;
 
@@ -496,6 +496,13 @@ pj_status_t pj_turn_config_load(void)
     }
 
     fsize = pj_file_size(PJ_TURN_CONFIG_FILE);
+    if (fsize <= 0) {
+        rc = PJ_EINVAL;
+        pj_file_close(fd);
+        PJ_PERROR(2, (pcfg->pool->obj_name, rc, "Invalid config size(%d)",
+                      (int)fsize));
+        return rc;
+    }
     fdata = pj_pool_alloc(tmp_pool, fsize);
     rc = pj_file_read(fd, fdata, (pj_ssize_t *)&fsize);
     if (rc != PJ_SUCCESS) {
@@ -506,10 +513,10 @@ pj_status_t pj_turn_config_load(void)
     pj_file_close(fd);
 
     scanner = PJ_POOL_ALLOC_T(tmp_pool, pj_scanner);
-    pj_scan_init(scanner, fdata, fsize, 0, NULL);
+    pj_scan_init(scanner, fdata, (pj_size_t)fsize, 0, NULL);
 
     while (!pj_scan_is_eof(scanner)) {
-        pj_str_t key, val;
+        pj_str_t key = {NULL, 0}, val = {NULL, 0};
 
         if (pj_isspace(*scanner->curptr)) {
             scanner->curptr++;
@@ -530,8 +537,10 @@ pj_status_t pj_turn_config_load(void)
             pj_scan_get_until_chr(scanner, " \t\r\n", &val);
         }
 
-        pj_strtrim(&key);
-        pj_strtrim(&val);
+        if (key.slen > 0)
+            pj_strtrim(&key);
+        if (val.slen > 0)
+            pj_strtrim(&val);
 
         if (key.slen == 0)
             continue;
