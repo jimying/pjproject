@@ -38,14 +38,15 @@ static void init_guid_chars(void)
 
     for (i=0; i<10; ++i)
         *p++ = '0'+i;
-
     for (i=0; i<26; ++i) {
         *p++ = 'a'+i;
         *p++ = 'A'+i;
     }
 
-    *p++ = '-';
-    *p++ = '.';
+    //*p++ = '-';
+    //*p++ = '.';
+    *p++ = 'J';
+    *p++ = 'K';
 }
 
 PJ_DEF(pj_str_t*) pj_generate_unique_string(pj_str_t *str)
