@@ -361,8 +361,9 @@ static pj_status_t buf_writer(const char *s,
     return PJ_SUCCESS;
 }
 
-PJ_DEF(pj_status_t) pj_json_write(const pj_json_elem *elem,
-                                  char *buffer, unsigned *size)
+PJ_DEF(pj_status_t) pj_json_write2(const pj_json_elem *elem,
+                                   char *buffer, unsigned *size,
+                                   const pj_json_write_cfg *cfg)
 {
     struct buf_writer_data buf_data;
     pj_status_t status;
@@ -372,7 +373,7 @@ PJ_DEF(pj_status_t) pj_json_write(const pj_json_elem *elem,
     buf_data.pos = buffer;
     buf_data.size = *size;
 
-    status = pj_json_writef(elem, &buf_writer, &buf_data);
+    status = pj_json_writef2(elem, &buf_writer, &buf_data, cfg);
     if (status != PJ_SUCCESS)
         return status;
 
@@ -381,22 +382,24 @@ PJ_DEF(pj_status_t) pj_json_write(const pj_json_elem *elem,
     return PJ_SUCCESS;
 }
 
-#define MAX_INDENT              100
-#ifndef PJ_JSON_NAME_MIN_LEN
-#  define PJ_JSON_NAME_MIN_LEN  20
-#endif
-#define ESC_BUF_LEN             64
-#ifndef PJ_JSON_INDENT_SIZE
-#  define PJ_JSON_INDENT_SIZE   3
-#endif
+PJ_DEF(pj_status_t) pj_json_write(const pj_json_elem *elem,
+                                  char *buffer, unsigned *size)
+{
+    return pj_json_write2(elem, buffer, size, NULL);
+}
+
+#define MAX_INDENT  100
+#define MAX_SPACE   20
+#define ESC_BUF_LEN 64
 
 struct write_state
 {
     pj_json_writer       writer;
+    pj_json_write_cfg    cfg;
     void                *user_data;
     char                 indent_buf[MAX_INDENT];
     int                  indent;
-    char                 space[PJ_JSON_NAME_MIN_LEN];
+    char                 space[MAX_SPACE];
 };
 
 #define CHECK(expr) do { \
@@ -429,7 +432,8 @@ static pj_status_t write_string_escaped(const pj_str_t *value,
                 *op++ = '\\';
                 *op++ = '\\';
                 ip++;
-            } else if (*ip == '/') {
+            } else if (*ip == '/' &&
+                       (st->cfg.flags & PJ_JSON_FLAG_ESCAPE_FORWARD_SLASH)) {
                 *op++ = '\\';
                 *op++ = '/';
                 ip++;
@@ -486,7 +490,7 @@ static pj_status_t write_children(const pj_json_list *list,
 
     //CHECK( st->writer( st->indent_buf, st->indent, st->user_data) );
     CHECK( st->writer( &quotes[0], 1, st->user_data) );
-    CHECK( st->writer( " ", 1, st->user_data) );
+    //CHECK( st->writer( " ", 1, st->user_data) );
 
     if (!pj_list_empty(list)) {
         pj_bool_t indent_added = PJ_FALSE;
@@ -504,24 +508,30 @@ static pj_status_t write_children(const pj_json_list *list,
                 child = child->next;
             }
         } else {
-            if (st->indent < (int)sizeof(st->indent_buf)) {
-                st->indent += PJ_JSON_INDENT_SIZE;
+            if (st->indent < (int)sizeof(st->indent_buf) &&
+                (st->cfg.flags & PJ_JSON_FLAG_NEWLINE)) {
+                st->indent += st->cfg.indent_size;
                 indent_added = PJ_TRUE;
             }
-            CHECK( st->writer( "\n", 1, st->user_data) );
+            if (st->cfg.flags & PJ_JSON_FLAG_NEWLINE)
+                CHECK( st->writer( "\n", 1, st->user_data) );
             while (child != (pj_json_elem*)list) {
                 status = elem_write(child, st, flags);
                 if (status != PJ_SUCCESS)
                     return status;
 
-                if (child->next != (pj_json_elem*)list)
-                    CHECK( st->writer( ",\n", 2, st->user_data) );
-                else
-                    CHECK( st->writer( "\n", 1, st->user_data) );
+                if (child->next != (pj_json_elem*)list) {
+                    CHECK( st->writer( ",", 1, st->user_data) );
+                    if (st->cfg.flags & PJ_JSON_FLAG_NEWLINE)
+                        CHECK( st->writer( "\n", 1, st->user_data) );
+                } else {
+                    if (st->cfg.flags & PJ_JSON_FLAG_NEWLINE)
+                        CHECK( st->writer( "\n", 1, st->user_data) );
+                }
                 child = child->next;
             }
             if (indent_added) {
-                st->indent -= PJ_JSON_INDENT_SIZE;
+                st->indent -= st->cfg.indent_size;
             }
             CHECK( st->writer( st->indent_buf, st->indent, st->user_data) );
         }
@@ -542,15 +552,18 @@ static pj_status_t elem_write(const pj_json_elem *elem,
         if ((flags & NO_NAME)==0) {
             CHECK( st->writer( "\"", 1, st->user_data) );
             CHECK( write_string_escaped(&elem->name, st) );
-            CHECK( st->writer( "\": ", 3, st->user_data) );
-            if (elem->name.slen < PJ_JSON_NAME_MIN_LEN /*&&
+            CHECK( st->writer( "\":", 2, st->user_data) );
+            if (st->cfg.flags & PJ_JSON_FLAG_SPACE_BEFOR_VAL)
+                CHECK( st->writer(" ", 1, st->user_data) );
+            if ((st->cfg.flags & PJ_JSON_FLAG_SPACE_BEFOR_VAL) &&
+                elem->name.slen < st->cfg.min_name_len /*&&
                 elem->type != PJ_JSON_VAL_OBJ &&
                 elem->type != PJ_JSON_VAL_ARRAY*/)
             {
-                CHECK( st->writer( st->space,
-                                   (unsigned)(PJ_JSON_NAME_MIN_LEN -
-                                              elem->name.slen),
-                                   st->user_data) );
+                unsigned nsp = (unsigned)(st->cfg.min_name_len - elem->name.slen);
+                if (nsp > MAX_SPACE)
+                    nsp = MAX_SPACE;
+                CHECK( st->writer( st->space, nsp, st->user_data) );
             }
         }
     }
@@ -570,9 +583,9 @@ static pj_status_t elem_write(const pj_json_elem *elem,
             char num_buf[65];
             int len;
 
-            if (elem->value.num == (int)elem->value.num)
-                len = pj_ansi_snprintf(num_buf, sizeof(num_buf), "%d",
-                                       (int)elem->value.num);
+            if (elem->value.num == (long)elem->value.num)
+                len = pj_ansi_snprintf(num_buf, sizeof(num_buf), "%ld",
+                                       (long)elem->value.num);
             else
                 len = pj_ansi_snprintf(num_buf, sizeof(num_buf), "%f",
                                        elem->value.num);
@@ -606,6 +619,14 @@ PJ_DEF(pj_status_t) pj_json_writef( const pj_json_elem *elem,
                                     pj_json_writer writer,
                                     void *user_data)
 {
+    return pj_json_writef2(elem, writer, user_data, NULL);
+}
+
+PJ_DEF(pj_status_t) pj_json_writef2(const pj_json_elem *elem,
+                                    pj_json_writer writer,
+                                    void *user_data,
+                                    const pj_json_write_cfg *cfg)
+{
     struct write_state st;
 
     PJ_ASSERT_RETURN(elem && writer, PJ_EINVAL);
@@ -614,8 +635,23 @@ PJ_DEF(pj_status_t) pj_json_writef( const pj_json_elem *elem,
     st.user_data        = user_data;
     st.indent           = 0;
     pj_memset(st.indent_buf, ' ', MAX_INDENT);
-    pj_memset(st.space, ' ', PJ_JSON_NAME_MIN_LEN);
+    pj_memset(st.space, ' ', MAX_SPACE);
+
+    if (cfg)
+        pj_memcpy(&st.cfg, cfg, sizeof(pj_json_write_cfg));
+    else
+        pj_json_write_cfg_default(&st.cfg);
+
 
     return elem_write(elem, &st, 0);
 }
 
+PJ_DEF(void) pj_json_write_cfg_default(pj_json_write_cfg *cfg)
+{
+    pj_bzero(cfg, sizeof(pj_json_write_cfg));
+    cfg->indent_size = 2;
+    cfg->min_name_len = 1;
+    cfg->flags = PJ_JSON_FLAG_ESCAPE_FORWARD_SLASH |
+                 PJ_JSON_FLAG_NEWLINE |
+                 PJ_JSON_FLAG_SPACE_BEFOR_VAL;
+}
