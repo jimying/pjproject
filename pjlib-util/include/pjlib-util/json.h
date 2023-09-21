@@ -219,6 +219,74 @@ PJ_DECL(pj_status_t)   pj_json_writef(const pj_json_elem *elem,
                                       void *user_data);
 
 /**
+ * Json write flags
+*/
+typedef enum pj_json_write_flag {
+    /** Escape forward slash */
+    PJ_JSON_FLAG_ESCAPE_FORWARD_SLASH = 1,
+    /** Newline */
+    PJ_JSON_FLAG_NEWLINE = 2,
+    /** Space before value */
+    PJ_JSON_FLAG_SPACE_BEFOR_VAL = 4,
+} pj_json_write_flag;
+
+/**
+ * Additional settings that can be given during json write. Application
+ * MUST initialize this structure with #pj_json_write_cfg_default().
+ */
+typedef struct pj_json_write_cfg {
+    /** The indent size */
+    int indent_size;
+    /** The min length of the key name */
+    int min_name_len;
+    /** Write flags, which is bitmask combination of #pj_json_write_flag enum */
+    int flags;
+} pj_json_write_cfg;
+
+/**
+ * Initialize the json write configuration with the default values.
+ *
+ * @param cfg           The configuration to be initialized.
+ */
+PJ_DECL(void) pj_json_write_cfg_default(pj_json_write_cfg *cfg);
+
+/**
+ * Write the specified element to the string buffer.
+ *
+ * @param elem          The element to be written.
+ * @param buffer        Output buffer.
+ * @param size          On input, it must be set to the size of the buffer.
+ *                      Upon successful return, this will be set to
+ *                      the length of the written string.
+ * @param cfg           Optional write configuration. Application must initialize 
+ *                      this structure with pj_json_write_cfg_default() first.
+
+ * @return              PJ_SUCCESS on success or the appropriate error.
+ */
+PJ_DECL(pj_status_t) pj_json_write2(const pj_json_elem *elem,
+                                    char *buffer, unsigned *size,
+                                    const pj_json_write_cfg *cfg);
+
+/**
+ * Incrementally write the element to arbitrary medium using the specified
+ * callback to write the document chunks.
+ *
+ * @param elem          The element to be written.
+ * @param writer        Callback function which will be called to write
+ *                      text chunks.
+ * @param user_data     Arbitrary user data which will be given back when
+ *                      calling the callback.
+ * @param cfg           Optional write configuration. Application must initialize 
+ *                      this structure with pj_json_write_cfg_default() first.
+ *
+ * @return              PJ_SUCCESS on success or the appropriate error.
+ */
+PJ_DECL(pj_status_t) pj_json_writef2(const pj_json_elem *elem,
+                                     pj_json_writer writer,
+                                     void *user_data,
+                                     const pj_json_write_cfg *cfg);
+
+/**
  * @}
  */
 
