@@ -287,6 +287,60 @@ PJ_DECL(pj_status_t) pj_json_writef2(const pj_json_elem *elem,
                                      const pj_json_write_cfg *cfg);
 
 /**
+ *  Check json type
+ * @param el        the element to check
+ * @param vtype     the expected value type
+ * @param on_fail   exec the logic on fail
+ */
+#define PJ_JSON_CHECK_TYPE(el, vtype, on_fail)                             \
+    if ((el)->type != vtype)                                               \
+    {                                                                      \
+        PJ_LOG(1, (THIS_FILE, "'%.*s' not type: %s", (int)(el)->name.slen, \
+                   (el)->name.ptr, #vtype));                               \
+        on_fail;                                                           \
+    }
+
+/**
+ * Json iterate callback
+ */
+typedef pj_status_t (*pj_json_iterate_callback)(pj_json_elem *el, void *user_data);
+
+/**
+ * Iterate json object
+ *
+ * @param el        the json object to be iterated
+ * @param cb        iterate callback
+ * @param user_data user data
+ *
+ * @return PJ_SUCCESS or other fail
+ */
+PJ_DECL(pj_status_t) pj_json_iterate(pj_json_elem *el,
+                                     pj_json_iterate_callback cb,
+                                     void *user_data);
+
+/**
+ * Find by key name in json object
+ * @param el        the json object to be iterated
+ * @param key       the key to find
+ * @param pval      the val to store the result
+ *
+ * @return PJ_SUCCESS or other fail
+ */
+PJ_DECL(pj_status_t) pj_json_find2(pj_json_elem *el,
+                                   pj_str_t *key,
+                                   pj_json_elem **pval);
+
+PJ_DECL(pj_status_t) pj_json_find(pj_json_elem *el,
+                                  const char *key,
+                                  pj_json_elem **pval);
+
+/**
+ * Get value by key. If not found the specified type, use default value
+*/
+PJ_DECL(long) pj_json_get_num(pj_json_elem *obj, const char *key, long default_val);
+PJ_DECL(pj_str_t) pj_json_get_str(pj_json_elem *obj, const char *key, char *default_val);
+
+/**
  * @}
  */
 
