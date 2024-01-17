@@ -71,5 +71,11 @@
 #include <pjlib-util/cli_console.h>
 #include <pjlib-util/cli_telnet.h>
 
+/** Websocket */
+#include <pjlib-util/websock.h>
+
+/** Ref */
+#include <pjlib-util/ref.h>
+
 #endif  /* __PJLIB_UTIL_H__ */
 

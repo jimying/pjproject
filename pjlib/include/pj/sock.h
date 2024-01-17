@@ -717,6 +717,58 @@ PJ_DECL(pj_uint32_t) pj_ntohl(pj_uint32_t netlong);
 PJ_DECL(pj_uint32_t) pj_htonl(pj_uint32_t hostlong);
 
 /**
+ * Convert 64-bit value from host byte order to network byte order.
+ *
+ * @param  v  64-bit host value.
+ * @return    64-bit network value.
+ */
+PJ_INLINE(pj_uint64_t) pj_htonll(pj_uint64_t v)
+{
+#if PJ_IS_LITTLE_ENDIAN
+    pj_uint64_t h = 0;
+    pj_uint8_t *p = (pj_uint8_t *)&v;
+
+    h |= (pj_uint64_t)*p++ << 56;
+    h |= (pj_uint64_t)*p++ << 48;
+    h |= (pj_uint64_t)*p++ << 40;
+    h |= (pj_uint64_t)*p++ << 32;
+    h |= (pj_uint64_t)*p++ << 24;
+    h |= (pj_uint64_t)*p++ << 16;
+    h |= (pj_uint64_t)*p++ << 8;
+    h |= (pj_uint64_t)*p << 0;
+    return h;
+#else
+    return v;
+#endif
+}
+
+/**
+ * Convert 64-bit value from network byte order to host byte order.
+ *
+ * @param  v   64-bit network value.
+ * @return     64-bit host value.
+ */
+PJ_INLINE(pj_uint64_t) pj_ntohll(pj_uint64_t v)
+{
+#if PJ_IS_LITTLE_ENDIAN
+    pj_uint64_t h;
+    pj_uint8_t *p = (pj_uint8_t *)&h;
+
+    *p++ = (pj_uint8_t)(v >> 56 & 0xff);
+    *p++ = (pj_uint8_t)(v >> 48 & 0xff);
+    *p++ = (pj_uint8_t)(v >> 40 & 0xff);
+    *p++ = (pj_uint8_t)(v >> 32 & 0xff);
+    *p++ = (pj_uint8_t)(v >> 24 & 0xff);
+    *p++ = (pj_uint8_t)(v >> 16 & 0xff);
+    *p++ = (pj_uint8_t)(v >> 8 & 0xff);
+    *p = (pj_uint8_t)(v >> 0 & 0xff);
+    return h;
+#else
+    return v;
+#endif
+}
+
+/**
  * Convert an Internet host address given in network byte order
  * to string in standard numbers and dots notation.
  *

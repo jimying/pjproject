@@ -957,6 +957,42 @@ PJ_DECL(int) pj_ansi_strxcat(char *dst, const char *src, pj_size_t dst_size);
 #  include <pj/string_i.h>
 #endif
 
+/**
+ * Check whether a string endswith with another string
+ *
+ * @param s    The string to be checked
+ * @param es   The endwith string
+ * @return PJ_TRUE or PJ_FALSE
+ */
+PJ_INLINE(pj_bool_t) pj_strendwith(const pj_str_t *s, const pj_str_t *es)
+{
+    char *p = (char *)s->ptr + s->slen - 1;
+    char *p2 = (char *)es->ptr + es->slen - 1;
+
+    if (s->slen < es->slen)
+        return PJ_FALSE;
+
+    for (; p2 >= es->ptr; --p2, --p)
+    {
+        if (*p != *p2)
+            return PJ_FALSE;
+    }
+    return PJ_TRUE;
+}
+
+/**
+ * Check whether a string endswith with another string
+ *
+ * @param s    The string to be checked
+ * @param es   The endwith string
+ * @return PJ_TRUE or PJ_FALSE
+ */
+PJ_INLINE(pj_bool_t) pj_strendwith2(const pj_str_t *s, const char *es)
+{
+    pj_str_t xes = pj_str((char *)es);
+    return pj_strendwith(s, &xes);
+}
+
 PJ_END_DECL
 
 #endif  /* __PJ_STRING_H__ */

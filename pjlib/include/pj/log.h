@@ -480,6 +480,39 @@ pj_status_t pj_log_init(void);
     #define pj_log_wrapper_6(arg)
 #endif
 
+/**
+ * Set log level from level-string
+ * 
+ * @param sl level-string (error/warn/info/debug/trace)
+*/
+PJ_INLINE(void) pj_log_set_level_fromstr(const char *sl)
+{
+    int level;
+    if (!sl)
+        return;
+
+    switch (sl[0])
+    {
+    case 'e':
+        level = 1; /* error */
+        break;
+    case 'w':
+        level = 2; /* warn */
+        break;
+    case 'i':
+        level = 3; /* info */
+        break;
+    case 'd':
+        level = 4; /* debug */
+        break;
+    case 't':
+        level = 5; /* trace */
+        break;
+    default:
+        return;
+    }
+    pj_log_set_level(level);
+}
 
 PJ_END_DECL 
 

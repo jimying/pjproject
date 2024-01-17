@@ -23,6 +23,8 @@
 #include <pj/except.h>
 #include <pj/string.h>
 
+#define THIS_FILE "json.c"
+
 #define EL_INIT(p_el, nm, typ)  do { \
                                     if (nm) { \
                                         p_el->name = *nm; \
@@ -654,4 +656,113 @@ PJ_DEF(void) pj_json_write_cfg_default(pj_json_write_cfg *cfg)
     cfg->flags = PJ_JSON_FLAG_ESCAPE_FORWARD_SLASH |
                  PJ_JSON_FLAG_NEWLINE |
                  PJ_JSON_FLAG_SPACE_BEFOR_VAL;
+}
+
+PJ_DEF(pj_status_t) pj_json_iterate(pj_json_elem *el,
+                                    pj_json_iterate_callback cb,
+                                    void *user_data)
+{
+    pj_status_t status = PJ_SUCCESS;
+    pj_json_elem *child_el;
+    PJ_ASSERT_RETURN(el && cb, PJ_EINVAL);
+
+    PJ_JSON_CHECK_TYPE(el, PJ_JSON_VAL_OBJ, {
+        return PJ_EINVALIDOP;
+    });
+
+    PJ_LIST_FOREACH(child_el, &el->value.children)
+    {
+        status = cb(child_el, user_data);
+        if (status != PJ_SUCCESS)
+            break;
+    }
+
+    return status;
+}
+
+PJ_DEF(pj_status_t) pj_json_find2(pj_json_elem *el,
+                                  pj_str_t *key,
+                                  pj_json_elem **pval)
+{
+    pj_status_t status = PJ_SUCCESS;
+    pj_json_elem *pe;
+    pj_bool_t found = PJ_FALSE;
+    PJ_ASSERT_RETURN(el && key, PJ_EINVAL);
+
+    PJ_LIST_FOREACH(pe, &el->value.children)
+    {
+        if (!pj_stricmp(key, &pe->name))
+        {
+            found = PJ_TRUE;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        status = PJ_ENOTFOUND;
+        pe = NULL;
+    }
+    if (pval)
+        *pval = pe;
+    return status;
+}
+
+PJ_DEF(pj_status_t) pj_json_find(pj_json_elem *el,
+                                 const char *key,
+                                 pj_json_elem **pval)
+{
+    pj_str_t skey;
+
+    PJ_ASSERT_RETURN(el && key, PJ_EINVAL);
+    skey = pj_str((char *)key);
+
+    return pj_json_find2(el, &skey, pval);
+}
+
+PJ_DEF(long) pj_json_get_num(pj_json_elem *obj, const char *key, long default_val)
+{
+    pj_json_elem *el = NULL;
+
+    if (pj_json_find(obj, key, &el) != PJ_SUCCESS)
+        return default_val;
+
+    switch (el->type)
+    {
+    case PJ_JSON_VAL_NUMBER:
+        return (long)el->value.num;
+    case PJ_JSON_VAL_STRING:
+        return pj_strtol(&el->value.str);
+    case PJ_JSON_VAL_BOOL:
+        return el->value.is_true;
+    default:
+        break;
+    }
+
+    return default_val;
+}
+
+PJ_DEF(pj_str_t) pj_json_get_str(pj_json_elem *obj, const char *key, char *default_val)
+{
+    pj_json_elem *el = NULL;
+    static char sbuf[32];
+
+    if (pj_json_find(obj, key, &el) != PJ_SUCCESS)
+        return pj_str(default_val);
+
+    switch (el->type)
+    {
+    case PJ_JSON_VAL_NUMBER:
+        snprintf(sbuf, sizeof(sbuf), "%ld", (long)el->value.num);
+        return pj_str(sbuf);
+    case PJ_JSON_VAL_STRING:
+        return el->value.str;
+    case PJ_JSON_VAL_BOOL:
+        return pj_str(el->value.is_true ? "true" : "false");
+    case PJ_JSON_VAL_NULL:
+        return pj_str("null");
+    default:
+        break;
+    }
+    return pj_str(default_val);
 }

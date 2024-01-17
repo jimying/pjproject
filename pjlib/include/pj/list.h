@@ -283,6 +283,15 @@ PJ_IDECL(pj_size_t) pj_list_size(const pj_list_type *list);
 #  include "list_i.h"
 #endif
 
+/**
+ * list foreach
+ * @param e    element
+ * @param h    list head
+ *
+ */
+#define PJ_LIST_FOREACH(e, h) \
+    for (e = (h)->next; (void *)e != (void *)(h); e = e->next)
+
 PJ_END_DECL
 
 #endif  /* __PJ_LIST_H__ */
