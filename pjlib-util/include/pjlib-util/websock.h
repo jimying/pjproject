@@ -108,6 +108,7 @@ pj_bool_t pj_ws_is_incoming(pj_ws_t *c);
 int pj_ws_get_ready_state(pj_ws_t *c);
 int pj_ws_get_close_code(pj_ws_t *c);
 const char *pj_ws_get_request_path(pj_ws_t *c);
+const char *pj_ws_get_query_param(pj_ws_t *c);
 const char *pj_ws_get_subproto(pj_ws_t *c);
 const char *pj_ws_print(pj_ws_t *c, char *buf, int len);
 const char *pj_ws_opcode_str(int opcode);

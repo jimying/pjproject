@@ -56,6 +56,7 @@ struct pj_ws_t {
     } filter;
 
     pj_str_t req_path;
+    pj_str_t query_param;
     pj_str_t subproto;
     pj_bool_t pending_payload;
     pj_ws_rx_data rdata;
@@ -183,10 +184,15 @@ static void generate_http_request_msg(const pj_http_uri *http_uri, const pj_ws_h
     char websock_key[80];
     int key_len = sizeof(websock_key);
     int n;
+    pj_ssize_t path_len;
 
     p = buf;
     end = p + *size - 3;
-    n = pj_ansi_snprintf(p, end - p, "GET %.*s HTTP/1.1\r\n", (int)http_uri->path.slen, http_uri->path.ptr);
+
+    path_len = http_uri->path.slen;
+    if (http_uri->query.slen)
+        path_len += http_uri->query.slen + 1;
+    n = pj_ansi_snprintf(p, end - p, "GET %.*s HTTP/1.1\r\n", (int)path_len, http_uri->path.ptr);
     CHECK_BUF_LEN();
     if (http_uri->port.slen == 0)
         n = pj_ansi_snprintf(p, end - p, "Host: %.*s\r\n", (int)http_uri->host.slen, http_uri->host.ptr);
@@ -262,6 +268,7 @@ pj_ws_connect(pj_ws_endpoint *endpt, const char *url, const pj_ws_cb *cb, void *
     }
 
     pj_strdup_with_null(pool, &c->req_path, &http_uri.path);
+    pj_strdup_with_null(pool, &c->query_param, &http_uri.query);
     generate_http_request_msg(&http_uri, hdrs, hdr_cnt, msg_buf, &msg_len);
     status = pj_http_msg_parse(msg_buf, msg_len, &msg_dummy, NULL);
     if (status != PJ_SUCCESS) {
@@ -545,6 +552,12 @@ const char *pj_ws_get_request_path(pj_ws_t *c)
     return c->req_path.ptr;
 }
 
+const char *pj_ws_get_query_param(pj_ws_t *c)
+{
+    PJ_ASSERT_RETURN(c, NULL);
+    return c->query_param.ptr;
+}
+
 const char *pj_ws_get_subproto(pj_ws_t *c)
 {
     PJ_ASSERT_RETURN(c, NULL);
@@ -565,6 +578,10 @@ const char *pj_ws_print(pj_ws_t *c, char *buf, int len)
     CHECK_BUF_LEN();
     n = pj_ansi_snprintf(p, end - p, "(%s ", c->req_path.ptr);
     CHECK_BUF_LEN();
+    if (c->query_param.slen > 0) {
+        n = pj_ansi_snprintf(p, end - p, "%s ", c->query_param.ptr);
+        CHECK_BUF_LEN();
+    }
     if (c->subproto.slen > 0) {
         n = pj_ansi_snprintf(p, end - p, "%s ", c->subproto.ptr);
         CHECK_BUF_LEN();
@@ -1110,26 +1127,43 @@ static pj_bool_t verify_srv_filter(pj_ws_t *srv, pj_ws_t *c, const pj_http_msg *
 {
     int i;
     pj_bool_t found = PJ_FALSE;
-    pj_str_t *req_path = req->start_line.u.req_line.path;
-    pj_str_t subproto;
+    pj_str_t *path = req->start_line.u.req_line.path;
+    pj_str_t req_path, query_param, subproto;
+    char *p;
+
+    pj_strset(&query_param, NULL, 0);
+    p = pj_strchr(path, '?');
+    if (p)
+    {
+        pj_strset3(&req_path, path->ptr, p);
+        if (p + 1 < path->ptr + path->slen)
+            pj_strset3(&query_param, p + 1, path->ptr + path->slen);
+    }
+    else
+    {
+        pj_strassign(&req_path, path);
+    }
 
     /* check if request path support */
     if (srv->filter.path_cnt > 0) {
         for (i = 0; i < srv->filter.path_cnt; i++) {
-            if (!pj_stricmp(&srv->filter.paths[i], req_path)) {
+            if (!pj_stricmp(&srv->filter.paths[i], &req_path)) {
                 found = PJ_TRUE;
-                pj_strdup_with_null(c->pool, &c->req_path, req_path);
+                pj_strdup_with_null(c->pool, &c->req_path, &req_path);
                 break;
             }
         }
 
         if (found == PJ_FALSE) {
-            PJ_LOG(1, (THIS_FILE, "%s() not support path: %.*s", __FUNCTION__, (int)req_path->slen, req_path->ptr));
+            PJ_LOG(1, (THIS_FILE, "%s() not support path: %.*s", __FUNCTION__, (int)req_path.slen, req_path.ptr));
             return PJ_FALSE;
         }
     } else {
-        pj_strdup_with_null(c->pool, &c->req_path, req_path);
+        pj_strdup_with_null(c->pool, &c->req_path, &req_path);
     }
+
+    /* set query param */
+    pj_strdup_with_null(c->pool, &c->query_param, &query_param);
 
     /* check if sub-proto support */
     pj_http_msg_find_hdr(req, &PJ_WS_KEY_NAME_SEC_WEBSOCKET_PROTO, &subproto);
