@@ -176,6 +176,10 @@ static void timer_callback(pj_timer_heap_t *heap, pj_timer_entry *e)
     if (n < 0 || n >= end - p) \
         goto out;              \
     p += n;
+#define CHECK_BUF_LEN_SETC(c) \
+    if (end - p < 1)          \
+        goto out;             \
+    *p++ = (c);
 
 static void generate_http_request_msg(const pj_http_uri *http_uri, const pj_ws_http_hdr *hdrs, int hdr_cnt, char *buf, int *size)
 {
@@ -576,16 +580,18 @@ const char *pj_ws_print(pj_ws_t *c, char *buf, int len)
 
     n = pj_ansi_snprintf(p, end - p, "%s", c->pool->obj_name);
     CHECK_BUF_LEN();
-    n = pj_ansi_snprintf(p, end - p, "(%s ", c->req_path.ptr);
+    n = pj_ansi_snprintf(p, end - p, "(%s", c->req_path.ptr);
     CHECK_BUF_LEN();
     if (c->query_param.slen > 0) {
-        n = pj_ansi_snprintf(p, end - p, "%s ", c->query_param.ptr);
+        n = pj_ansi_snprintf(p, end - p, "?%s", c->query_param.ptr);
         CHECK_BUF_LEN();
     }
     if (c->subproto.slen > 0) {
-        n = pj_ansi_snprintf(p, end - p, "%s ", c->subproto.ptr);
+        CHECK_BUF_LEN_SETC(' ');
+        n = pj_ansi_snprintf(p, end - p, "%s", c->subproto.ptr);
         CHECK_BUF_LEN();
     }
+    CHECK_BUF_LEN_SETC(' ');
     if (c->loc.addr.sa_family) {
         pj_sockaddr_print(&c->loc, laddr, sizeof(laddr), 3);
     }
