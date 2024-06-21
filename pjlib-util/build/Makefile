@@ -42,7 +42,7 @@ export PJLIB_UTIL_OBJS += $(OS_OBJS) $(M_OBJS) $(CC_OBJS) $(HOST_OBJS) \
 		srv_resolver.o string.o stun_simple.o \
 		stun_simple_client.o xml.o ref.o \
 		http.o websock.o websock_transport.o \
-		task.o task_msg.o poller_task.o
+		task.o task_msg.o poller_task.o txdata_factory.o
 export PJLIB_UTIL_CFLAGS += $(_CFLAGS)
 export PJLIB_UTIL_CXXFLAGS += $(_CXXFLAGS)
 export PJLIB_UTIL_LDFLAGS += $(PJLIB_LDLIB) $(_LDFLAGS)
