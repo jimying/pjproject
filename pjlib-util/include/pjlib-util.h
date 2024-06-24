@@ -77,5 +77,13 @@
 /** Ref */
 #include <pjlib-util/ref.h>
 
+/** task */
+#include <pjlib-util/task.h>
+#include <pjlib-util/task_msg.h>
+#include <pjlib-util/poller_task.h>
+
+/** txdata factory */
+#include <pjlib-util/txdata_factory.h>
+
 #endif  /* __PJLIB_UTIL_H__ */
 
