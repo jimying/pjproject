@@ -1,4 +1,5 @@
 #include <pjlib-util/poller_task.h>
+#include <pjlib.h>
 
 #define THIS_FILE "poller_task.c"
 

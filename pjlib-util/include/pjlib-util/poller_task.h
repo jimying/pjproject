@@ -1,7 +1,7 @@
 #ifndef __PJUTIL_POLLER_TASK_H__
 #define __PJUTIL_POLLER_TASK_H__
 
-#include <pjlib.h>
+#include <pj/types.h>
 #include <pjlib-util/task.h>
 
 int pj_poller_task_create(pj_pool_factory *pf, const char *name, int maxfd, void *user_data, pj_task_t **pptask);
