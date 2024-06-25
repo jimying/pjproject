@@ -49,7 +49,7 @@ int pj_poller_task_create(pj_pool_factory *pf, const char *name, int maxfd, void
         goto on_error;
     }
 
-    status = pj_lock_create_recursive_mutex(pool, "media-task-lock%p", &ptask->lock);
+    status = pj_lock_create_recursive_mutex(pool, "poller-task-lock%p", &ptask->lock);
     if (status != PJ_SUCCESS)
     {
         PJ_PERROR(1, (THIS_FILE, status, "create lock error"));
@@ -153,7 +153,9 @@ static pj_bool_t on_task_run(pj_task_t *task)
         {
             pj_task_msg_t *msg = (pj_task_msg_t *)ptask->mq.next;
             pj_list_erase(msg);
+            pj_lock_release(ptask->lock);
             pj_task_msg_process(task, msg);
+            pj_lock_acquire(ptask->lock);
         }
         pj_lock_release(ptask->lock);
 
