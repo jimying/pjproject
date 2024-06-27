@@ -206,7 +206,7 @@ static pj_json_elem* parse_elem_throw(struct parse_state *st,
     pj_str_t token;
 
     if (!elem)
-        elem = pj_pool_alloc(st->pool, sizeof(*elem));
+        elem = pj_pool_zalloc(st->pool, sizeof(*elem));
 
     /* Parse name */
     if (*st->scanner.curptr == '"') {
