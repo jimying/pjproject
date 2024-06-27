@@ -4,14 +4,6 @@
 
 typedef struct pj_txdata_factory_t pj_txdata_factory_t;
 typedef struct pj_txdata_t pj_txdata_t;
-struct pj_txdata_factory_t
-{
-    pj_pool_t *pool;
-    pj_txdata_t *dlist;
-    int cnt;
-    int max_cnt;
-    unsigned err_cnt;
-};
 struct pj_txdata_t
 {
     PJ_DECL_LIST_MEMBER(struct pj_txdata_t);

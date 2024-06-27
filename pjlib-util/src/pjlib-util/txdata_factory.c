@@ -1,6 +1,16 @@
 #include <pjlib-util/txdata_factory.h>
 #define THIS_FILE "txdata_factory.c"
 
+struct pj_txdata_factory_t
+{
+    pj_pool_t *pool;
+    pj_txdata_t *dlist;
+    pj_lock_t *lock;
+    int cnt;
+    int max_cnt;
+    unsigned err_cnt;
+};
+
 int pj_txdata_factory_create(pj_pool_t *pool, int cnt, int max_cnt, pj_txdata_factory_t **pf)
 {
     pj_txdata_factory_t *f;
@@ -21,6 +31,7 @@ int pj_txdata_factory_create(pj_pool_t *pool, int cnt, int max_cnt, pj_txdata_fa
     {
         pj_list_push_back(f->dlist, array + i);
     }
+    pj_lock_create_simple_mutex(pool, "tdata-factory%p", &f->lock);
     *pf = f;
     return PJ_SUCCESS;
 }
@@ -51,7 +62,9 @@ static int extend_factory_size(pj_txdata_factory_t *f)
 
 pj_txdata_t *pj_txdata_acquire(pj_txdata_factory_t *f)
 {
-    pj_txdata_t *tdata;
+    pj_txdata_t *tdata = NULL;
+
+    pj_lock_acquire(f->lock);
     if (pj_list_empty(f->dlist))
     {
         if (f->cnt >= f->max_cnt)
@@ -60,17 +73,20 @@ pj_txdata_t *pj_txdata_acquire(pj_txdata_factory_t *f)
                 PJ_LOG(2, (THIS_FILE, "[%s] Can't alloc media tx data in factory(cnt:%d, max_cnt:%d, err_cnt:%u), and can't extend capacity",
                            f->pool->obj_name, f->cnt, f->max_cnt, f->err_cnt + 1));
             f->err_cnt++;
-            return NULL;
+            goto on_return;
         }
         PJ_LOG(2, (THIS_FILE, "[%s] Can't alloc media tx data in factory(cnt:%d), extend capacity to %d", f->pool->obj_name, f->cnt, f->cnt * 2));
         if (extend_factory_size(f) != PJ_SUCCESS)
-            return NULL;
+            goto on_return;
     }
 
     tdata = f->dlist->next;
     pj_list_erase(tdata);
     pj_bzero(&tdata->send_key, sizeof(pj_ioqueue_op_key_t));
     tdata->send_key.user_data = tdata;
+
+on_return:
+    pj_lock_release(f->lock);
     return tdata;
 }
 
@@ -78,5 +94,7 @@ void pj_txdata_release(pj_txdata_factory_t *f, pj_txdata_t *tdata)
 {
     if (!f || !tdata)
         return;
+    pj_lock_acquire(f->lock);
     pj_list_push_back(f->dlist, tdata);
+    pj_lock_release(f->lock);
 }
