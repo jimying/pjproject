@@ -38,6 +38,7 @@
 #include <pjlib-util/hmac_sha1.h>
 #include <pjlib-util/md5.h>
 #include <pjlib-util/sha1.h>
+#include <pjlib-util/sha2.h>
 
 /* DNS and resolver */
 #include <pjlib-util/dns.h>
