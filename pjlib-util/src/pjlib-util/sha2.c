@@ -162,7 +162,7 @@ void pj_hmac_sha256(pj_uint8_t dst[32], pj_uint8_t *key, pj_size_t keysz, pj_uin
     {
         pj_sha256_init(&ctx);
         pj_sha256_update(&ctx, key, keysz);
-        pj_sha256_final(k, &ctx);
+        pj_sha256_final(&ctx, k);
     }
     for (i = 0; i < sizeof(k); i++)
     {
@@ -172,9 +172,9 @@ void pj_hmac_sha256(pj_uint8_t dst[32], pj_uint8_t *key, pj_size_t keysz, pj_uin
     pj_sha256_init(&ctx);
     pj_sha256_update(&ctx, i_pad, sizeof(i_pad));
     pj_sha256_update(&ctx, data, datasz);
-    pj_sha256_final(dst, &ctx);
+    pj_sha256_final(&ctx, dst);
     pj_sha256_init(&ctx);
     pj_sha256_update(&ctx, o_pad, sizeof(o_pad));
     pj_sha256_update(&ctx, dst, 32);
-    pj_sha256_final(dst, &ctx);
+    pj_sha256_final(&ctx, dst);
 }
