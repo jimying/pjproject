@@ -82,6 +82,7 @@
 #include <pjlib-util/task.h>
 #include <pjlib-util/task_msg.h>
 #include <pjlib-util/poller_task.h>
+#include <pjlib-util/thread_pool.h>
 
 /** txdata factory */
 #include <pjlib-util/txdata_factory.h>
