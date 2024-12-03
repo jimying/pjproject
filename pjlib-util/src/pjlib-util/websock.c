@@ -1153,7 +1153,11 @@ static pj_bool_t verify_srv_filter(pj_ws_t *srv, pj_ws_t *c, const pj_http_msg *
     /* check if request path support */
     if (srv->filter.path_cnt > 0) {
         for (i = 0; i < srv->filter.path_cnt; i++) {
-            if (!pj_stricmp(&srv->filter.paths[i], &req_path)) {
+            pj_str_t *f = &srv->filter.paths[i];
+            if (!pj_stricmp(f, &req_path) ||
+                (!pj_strnicmp(f, &req_path, (pj_size_t)f->slen) &&
+                 (req_path.ptr[f->slen - 1] == '/' || req_path.ptr[f->slen] == '/')))
+            {
                 found = PJ_TRUE;
                 pj_strdup_with_null(c->pool, &c->req_path, &req_path);
                 break;
