@@ -50,11 +50,15 @@
 #   ifndef pj_assert
 #       include "pj/os.h"
 #       include "pj/log.h"
+#       include <string.h>
 #       define pj_assert(expr) \
             do { \
                 if (!(expr)) { \
-                    if (pj_thread_is_registered()) \
-                        PJ_LOG(1, (__FILE__, "Assert failed: %s", #expr)); \
+                    if (pj_thread_is_registered()) { \
+                        const char *p = strrchr(__FILE__, '/'); \
+                        if (!p) p = strrchr(__FILE__, '\\'); \
+                        pj_log_1(p? p+1:__FILE__, "Assert failed: %s", #expr); \
+                    } \
                 } \
             } while (0)
 #   endif
