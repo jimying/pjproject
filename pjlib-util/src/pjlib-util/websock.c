@@ -645,6 +645,11 @@ const char *pj_ws_state_str(int state)
     return "?";
 }
 
+pj_ws_t *pj_ws_get_parent(pj_ws_t *c)
+{
+    return c->parent;
+}
+
 pj_status_t pj_ws_set_support_path(pj_ws_t *srv, pj_str_t paths[], int cnt)
 {
     int i = 0;

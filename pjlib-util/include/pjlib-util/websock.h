@@ -113,6 +113,7 @@ const char *pj_ws_get_subproto(pj_ws_t *c);
 const char *pj_ws_print(pj_ws_t *c, char *buf, int len);
 const char *pj_ws_opcode_str(int opcode);
 const char *pj_ws_state_str(int state);
+pj_ws_t *pj_ws_get_parent(pj_ws_t *c);
 
 PJ_END_DECL
 
