@@ -106,6 +106,7 @@ struct pj_ioqueue_key_t
  */
 struct pj_ioqueue_t
 {
+    pj_ioqueue_base_t base;
     DECLARE_COMMON_IOQUEUE
 
     unsigned            max, count;     /* Max and current key count        */

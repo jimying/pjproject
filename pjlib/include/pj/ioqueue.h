@@ -945,6 +945,33 @@ PJ_DECL(pj_status_t) pj_ioqueue_sendto( pj_ioqueue_key_t *key,
 PJ_DECL(pj_oshandle_t) pj_ioqueue_get_os_handle( pj_ioqueue_t *ioqueue );
 
 
+
+typedef struct pj_ioqueue_wakeup_t pj_ioqueue_wakeup_t;
+typedef struct {
+    pj_ioqueue_wakeup_t *wu;
+} pj_ioqueue_base_t;
+
+/**
+ * create ioqueue wakeup
+ * @param ioqueue       The ioqueue instance.
+ * @return              PJ_SUCCESS on success.
+ */
+PJ_DECL(pj_status_t) pj_ioqueue_wakeup_create(pj_ioqueue_t *ioqueue, pj_pool_t *pool);
+
+/**
+ * destroy ioqueue wakeup
+ * @param ioqueue       The ioqueue instance.
+ * @return              PJ_SUCCESS on success.
+ */
+PJ_DECL(pj_status_t) pj_ioqueue_wakeup_destroy(pj_ioqueue_t *ioqueue);
+
+/**
+ * ioqueue wakeup notify
+ * @param ioqueue       The ioqueue instance.
+ * @return              PJ_SUCCESS on success.
+ */
+PJ_DECL(pj_status_t) pj_ioqueue_wakeup_notify(pj_ioqueue_t *ioqueue);
+
 /**
  * @}
  */

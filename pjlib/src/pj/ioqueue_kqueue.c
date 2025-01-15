@@ -65,6 +65,7 @@ struct queue {
  * This describes the I/O queue.
  */
 struct pj_ioqueue_t {
+    pj_ioqueue_base_t base;
     DECLARE_COMMON_IOQUEUE unsigned max, count;
     pj_ioqueue_key_t active_list;
     int kfd; // kqueue fd

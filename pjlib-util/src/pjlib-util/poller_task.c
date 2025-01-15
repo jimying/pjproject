@@ -41,6 +41,7 @@ int pj_poller_task_create(pj_pool_factory *pf, const char *name, int maxfd, void
         PJ_PERROR(1, (THIS_FILE, status, "create ioqueue error"));
         goto on_error;
     }
+    pj_ioqueue_wakeup_create(ptask->ioq, pool);
 
     status = pj_timer_heap_create(pool, 256, &ptask->ht);
     if (status != PJ_SUCCESS)
@@ -96,8 +97,11 @@ void pj_poller_task_destroy(pj_task_t *task)
     if (!task)
         return;
     ptask = pj_task_get_userdata(task);
-    pj_task_terminate(ptask->task, PJ_TRUE);
+    pj_task_terminate(ptask->task, PJ_FALSE);
+    pj_ioqueue_wakeup_notify(ptask->ioq);
+    pj_task_wait_till_complete(ptask->task);
     pj_task_destroy(ptask->task);
+    pj_ioqueue_wakeup_destroy(ptask->ioq);
     pj_ioqueue_destroy(ptask->ioq);
     pj_timer_heap_destroy(ptask->ht);
     pj_lock_destroy(ptask->lock);
@@ -134,6 +138,7 @@ static pj_bool_t on_signal_msg(pj_task_t *task, pj_task_msg_t *msg)
     pj_lock_acquire(ptask->lock);
     pj_list_push_back(&ptask->mq, msg);
     pj_lock_release(ptask->lock);
+    pj_ioqueue_wakeup_notify(ptask->ioq);
     return PJ_TRUE;
 }
 
@@ -146,7 +151,7 @@ static pj_bool_t on_task_run(pj_task_t *task)
 
     while (*running)
     {
-        pj_time_val timeout = {0, 10}, delay = {0, 0};
+        pj_time_val timeout = {1, 0}, delay = {0, 0};
 
         pj_lock_acquire(ptask->lock);
         while (!pj_list_empty(&ptask->mq) && *running)
